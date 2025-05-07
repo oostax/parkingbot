@@ -52,9 +52,6 @@ export default function ParkingForecast({ parkingId }: ParkingForecastProps) {
     freeSpaces: Math.round(item.avg_free_spaces),
     occupancyRate: Math.round(item.avg_occupancy * 100)
   }));
-
-  // Get current hour
-  const currentHour = new Date().getHours();
   
   return (
     <div className="w-full">

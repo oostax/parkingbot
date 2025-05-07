@@ -12,10 +12,25 @@ import dynamic from 'next/dynamic';
 
 // Fix for Leaflet icons in Next.js
 const fixLeafletIcon = () => {
-  delete (window as any)._leafletMarker;
-  delete (window as any)._leafletMap;
+  // Используем более конкретные типы вместо any
+  interface WindowWithLeaflet extends Window {
+    _leafletMarker?: unknown;
+    _leafletMap?: unknown;
+    L: {
+      Icon: {
+        Default: {
+          mergeOptions: (options: Record<string, string>) => void;
+        };
+      };
+    };
+  }
 
-  (window as any).L.Icon.Default.mergeOptions({
+  const win = window as WindowWithLeaflet;
+  
+  delete win._leafletMarker;
+  delete win._leafletMap;
+
+  win.L.Icon.Default.mergeOptions({
     iconRetinaUrl: '/leaflet/marker-icon-2x.png',
     iconUrl: '/leaflet/marker-icon.png',
     shadowUrl: '/leaflet/marker-shadow.png',

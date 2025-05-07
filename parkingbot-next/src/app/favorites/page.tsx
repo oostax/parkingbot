@@ -1,4 +1,4 @@
-import { auth } from '../api/auth/[...nextauth]/route';
+import { auth } from '@/lib/auth-helpers';
 import { redirect } from 'next/navigation';
 import { getUserFavorites } from '@/db/utils';
 import { Button } from '@/components/ui/button';

@@ -4,9 +4,11 @@ import { getParkingInfo } from '@/lib/parking-api';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
 ) {
-  const id = params.id;
+  // Получение id из URL
+  const url = new URL(request.url);
+  const pathParts = url.pathname.split('/');
+  const id = pathParts[pathParts.length - 1];
 
   try {
     // First try to get fresh data from the API

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFavorites, addFavorite, removeFavorite } from '@/db/utils';
-import { auth } from '../auth/[...nextauth]/route';
+import { auth } from '@/lib/auth-helpers';
 
 export async function GET() {
   const session = await auth();
