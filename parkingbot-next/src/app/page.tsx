@@ -1,12 +1,6 @@
 import { getAllParkings } from '@/db/utils';
-import dynamic from 'next/dynamic';
 import { Suspense } from 'react';
-
-// Import dynamically to avoid server-side rendering issues with Leaflet
-const ParkingMap = dynamic(() => import('@/components/ParkingMap'), {
-  ssr: false,
-  loading: () => <div className="w-full h-[600px] flex items-center justify-center">Загрузка карты...</div>
-});
+import ClientParkingMap from '@/components/ClientParkingMap';
 
 export default async function Home() {
   const parkings = await getAllParkings();
@@ -22,7 +16,7 @@ export default async function Home() {
       
       <div className="w-full max-w-7xl mb-8">
         <Suspense fallback={<div className="w-full h-[600px] flex items-center justify-center">Загрузка карты...</div>}>
-          <ParkingMap parkings={parkings} />
+          <ClientParkingMap parkings={parkings} />
         </Suspense>
       </div>
       
