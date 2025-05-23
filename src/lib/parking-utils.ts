@@ -43,15 +43,33 @@ export async function getParkingRealTimeData(parkingId: string): Promise<{
   isStale?: boolean;
 } | null> {
   try {
-    const response = await fetch(`/api/parkings/${parkingId}/live`);
+    console.log(`Requesting data for parking ${parkingId}...`);
+    
+    // Add cache-busting parameter to prevent browser caching
+    const cacheBuster = `?_t=${Date.now()}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort('Request timeout'), 15000);
+    
+    const response = await fetch(`/api/parkings/${parkingId}/live${cacheBuster}`, {
+      signal: controller.signal,
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+      }
+    });
+    
+    clearTimeout(timeoutId);
+    
     if (!response.ok) {
-      throw new Error(`Failed to fetch parking data: ${response.statusText}`);
+      throw new Error(`Failed to fetch parking data: ${response.status} ${response.statusText}`);
     }
     
     const data = await response.json();
     
     // Проверяем наличие флага dataAvailable
     if ('dataAvailable' in data && data.dataAvailable === false) {
+      console.log(`No data available for parking ${parkingId}`);
       return {
         totalSpaces: 0,
         freeSpaces: 0,
@@ -61,6 +79,7 @@ export async function getParkingRealTimeData(parkingId: string): Promise<{
       };
     }
     
+    console.log(`Successfully loaded data for parking ${parkingId}`);
     return {
       totalSpaces: data.totalSpaces || 0,
       freeSpaces: data.freeSpaces || 0,
@@ -68,9 +87,14 @@ export async function getParkingRealTimeData(parkingId: string): Promise<{
       handicappedFree: data.handicappedFree || 0,
       isStale: data.isStale || false
     };
-  } catch (error) {
-    console.error(`Error fetching real-time data for parking ${parkingId}:`, error);
-    return null;
+  } catch (error: any) {
+    // Check if it's an abort error
+    if (error.name === 'AbortError') {
+      console.error(`Request for parking ${parkingId} timed out`);
+    } else {
+      console.error(`Error fetching real-time data for parking ${parkingId}:`, error);
+    }
+    throw error;
   }
 }
 

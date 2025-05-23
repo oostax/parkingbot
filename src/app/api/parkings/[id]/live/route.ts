@@ -48,9 +48,13 @@ const fetchData = async (parkingId: string): Promise<any> => {
   try {
     console.log(`Fetching data for parking ${parkingId}...`);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    // Increase timeout to 20 seconds
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
     
-    const response = await fetch(apiUrl, {
+    // Add random query parameter to bypass cache
+    const cacheBypass = `?_t=${Date.now()}`;
+    
+    const response = await fetch(apiUrl + cacheBypass, {
       headers: {
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -68,24 +72,28 @@ const fetchData = async (parkingId: string): Promise<any> => {
         "Pragma": "no-cache"
       },
       cache: "no-store",
-      signal: controller.signal
+      signal: controller.signal,
+      // Add credentials to include cookies if any
+      credentials: "same-origin",
     });
     
     clearTimeout(timeoutId);
     
     if (!response.ok) {
+      console.error(`API request failed with status ${response.status}: ${response.statusText}`);
       throw new Error(`API request failed with status ${response.status}`);
     }
     
     const data = await response.json();
     
     if (!data.parking) {
+      console.error("Invalid response format:", data);
       throw new Error("Invalid response format");
     }
     
     return data;
   } catch (error: any) {
-    console.error(`Error fetching parking data: ${error.message}`);
+    console.error(`Error fetching parking data for ID ${parkingId}: ${error.message}`);
     throw error;
   }
 };
@@ -146,7 +154,7 @@ export async function GET(
             });
             console.log(`Background update successful for parking ${parkingId}`);
           } catch (error) {
-            console.error(`Background update failed for parking ${parkingId}`);
+            console.error(`Background update failed for parking ${parkingId}:`, error);
             // Increment failed attempt count
             if (cachedResponse) {
               cache.set(parkingId, {
@@ -170,40 +178,60 @@ export async function GET(
     
     // STRATEGY 3: No usable cache, make synchronous request
     if (!requestTracker.inProgress.has(parkingId)) {
-      try {
-        requestTracker.inProgress.add(parkingId);
-        const data = await fetchData(parkingId);
-        const processedData = processApiData(data);
-        
-        // Save to cache
-        cache.set(parkingId, { 
-          data: processedData, 
-          timestamp: now,
-          attempts: 0
-        });
-        
-        console.log(`Successfully fetched fresh data for parking ${parkingId}`);
-        return NextResponse.json(processedData);
-      } catch (error) {
-        // If we have any cached data (even very old), return it in case of error
-        if (cachedResponse) {
-          return NextResponse.json({
-            ...cachedResponse.data,
-            isStale: true,
-            dataAvailable: true
+      let retryCount = 0;
+      const maxRetries = 2;
+      
+      while (retryCount <= maxRetries) {
+        try {
+          requestTracker.inProgress.add(parkingId);
+          const data = await fetchData(parkingId);
+          const processedData = processApiData(data);
+          
+          // Save to cache
+          cache.set(parkingId, { 
+            data: processedData, 
+            timestamp: now,
+            attempts: 0
           });
+          
+          console.log(`Successfully fetched fresh data for parking ${parkingId}`);
+          return NextResponse.json(processedData);
+        } catch (error) {
+          console.error(`Attempt ${retryCount + 1}/${maxRetries + 1} failed for parking ${parkingId}:`, error);
+          
+          // If not the last retry, wait and try again
+          if (retryCount < maxRetries) {
+            retryCount++;
+            // Exponential backoff: 1s, 2s
+            const delay = Math.pow(2, retryCount - 1) * 1000;
+            console.log(`Retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          } else {
+            // All retries failed
+            // If we have any cached data (even very old), return it in case of error
+            if (cachedResponse) {
+              return NextResponse.json({
+                ...cachedResponse.data,
+                isStale: true,
+                dataAvailable: true
+              });
+            }
+            
+            // No cached data at all, return empty data
+            return NextResponse.json({
+              totalSpaces: 0,
+              freeSpaces: 0,
+              handicappedTotal: 0,
+              handicappedFree: 0,
+              dataAvailable: false,
+              error: "Failed to fetch data after multiple attempts"
+            });
+          }
+        } finally {
+          if (retryCount === maxRetries) {
+            requestTracker.inProgress.delete(parkingId);
+          }
         }
-        
-        // No cached data at all, return empty data
-        return NextResponse.json({
-          totalSpaces: 0,
-          freeSpaces: 0,
-          handicappedTotal: 0,
-          handicappedFree: 0,
-          dataAvailable: false
-        });
-      } finally {
-        requestTracker.inProgress.delete(parkingId);
       }
     } else {
       // Already fetching this parking ID, return a waiting status

@@ -38,6 +38,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
     const fetchRealTimeData = async () => {
       setIsLoadingData(true);
       try {
+        console.log(`Fetching data for parking ${parking.id}...`);
         const data = await getParkingRealTimeData(parking.id);
         if (isMounted) {
           if (data) {
@@ -64,9 +65,17 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
           // Пробуем повторить запрос с увеличивающейся задержкой
           if (retryCount < maxRetries) {
             retryCount++;
-            console.log(`Retrying fetch attempt ${retryCount}...`);
+            console.log(`Retrying fetch attempt ${retryCount}/${maxRetries}...`);
             // Экспоненциальная задержка: 1 секунда, затем 2, затем 4
             const delay = Math.pow(2, retryCount - 1) * 1000;
+            
+            // Show toast notification about retry
+            toast({
+              title: "Загрузка данных...",
+              description: `Попытка ${retryCount}/${maxRetries}`,
+              duration: delay - 100,
+            });
+            
             setTimeout(fetchRealTimeData, delay);
             return;
           }
@@ -74,6 +83,13 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
           setIsLoadingData(false);
           setDataAvailable(false);
           setRealTimeData(null);
+          
+          // Show error toast
+          toast({
+            title: "Ошибка загрузки данных",
+            description: "Не удалось загрузить данные о парковке",
+            variant: "destructive",
+          });
         }
       }
     };
