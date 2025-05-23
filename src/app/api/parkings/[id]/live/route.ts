@@ -1,140 +1,226 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Cache responses for 10 minutes to reduce API calls
-const CACHE_TIME = 600; // seconds
-const cache = new Map<string, { data: Record<string, number | boolean>; timestamp: number }>();
+// Cache responses for 30 minutes instead of 10 to drastically reduce API calls
+const CACHE_TIME = 1800; // seconds (30 minutes)
+const STALE_CACHE_TIME = 86400; // seconds (24 hours) - after this, data is considered outdated but still usable
 
-// Добавляем настройки таймаута и повторных попыток
-const fetchWithRetry = async (url: string, options: RequestInit, retries = 3, timeout = 15000) => {
-  // Создаем контроллер для отмены fetch по таймауту
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+// Global request tracking - this helps prevent parallel requests to the Moscow API
+const requestTracker = {
+  inProgress: new Set<string>(),
+  lastRequest: 0,
+  minRequestDelay: 2000, // minimum 2 seconds between requests to the external API
+};
 
+// Cache structure holding data for each parking ID
+const cache = new Map<string, { 
+  data: Record<string, number | boolean>; 
+  timestamp: number;
+  attempts: number; 
+}>();
+
+// User agent rotation to make request look more human-like
+const userAgents = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+];
+
+// Make a single fetch attempt with better browser emulation
+const fetchData = async (parkingId: string): Promise<any> => {
+  const apiUrl = `https://lk.parking.mos.ru/api/3.0/parkings/${parkingId}`;
+  
+  // Ensure we're not making requests too quickly
+  const now = Date.now();
+  const timeSinceLastRequest = now - requestTracker.lastRequest;
+  if (timeSinceLastRequest < requestTracker.minRequestDelay) {
+    const delay = requestTracker.minRequestDelay - timeSinceLastRequest;
+    console.log(`Throttling API request, waiting ${delay}ms...`);
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+  
+  // Update last request time
+  requestTracker.lastRequest = Date.now();
+  
+  // Choose a random user agent
+  const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+  
   try {
-    // Добавляем случайную задержку от 100 до 500 мс чтобы избежать блокировки
-    await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 400));
+    console.log(`Fetching data for parking ${parkingId}...`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     
-    const response = await fetch(url, {
-      ...options,
+    const response = await fetch(apiUrl, {
+      headers: {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+        "User-Agent": userAgent,
+        "Referer": "https://lk.parking.mos.ru/parkings",
+        "Origin": "https://lk.parking.mos.ru",
+        "sec-ch-ua": `"Not_A Brand";v="8", "Chromium";v="120"`,
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Windows\"",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "Connection": "keep-alive",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache"
+      },
+      cache: "no-store",
       signal: controller.signal
     });
-    clearTimeout(timeoutId);
-    return response;
-  } catch (err) {
+    
     clearTimeout(timeoutId);
     
-    if (retries <= 1) throw err;
+    if (!response.ok) {
+      throw new Error(`API request failed with status ${response.status}`);
+    }
     
-    console.log(`Retry attempt for ${url}, ${retries-1} attempts remaining`);
-    // Экспоненциальная задержка с случайным компонентом (jitter)
-    const delay = Math.pow(2, 4 - retries) * 1000 + Math.random() * 1000;
-    console.log(`Waiting ${Math.round(delay)}ms before next retry...`);
-    await new Promise(resolve => setTimeout(resolve, delay));
-    return fetchWithRetry(url, options, retries - 1, timeout);
+    const data = await response.json();
+    
+    if (!data.parking) {
+      throw new Error("Invalid response format");
+    }
+    
+    return data;
+  } catch (error: any) {
+    console.error(`Error fetching parking data: ${error.message}`);
+    throw error;
   }
 };
 
+// Process the API response data
+const processApiData = (data: any): Record<string, number | boolean> => {
+  const parkingData = data.parking;
+  const spaces = parkingData.congestion?.spaces || {};
+  const overall = spaces.overall || {};
+  const handicapped = spaces.handicapped || {};
+  
+  return {
+    totalSpaces: overall.total || 0,
+    freeSpaces: overall.free || 0,
+    handicappedTotal: handicapped.total || 0,
+    handicappedFree: handicapped.free || 0,
+    dataAvailable: true,
+    lastUpdated: Math.floor(Date.now() / 1000)
+  };
+};
+
+// Main API handler
 export async function GET(
   request: NextRequest,
   context: { params: { id: string } }
 ) {
+  const params = await context.params;
+  const parkingId = params.id;
+  
   try {
-    const params = await context.params;
-    const parkingId = params.id;
-    
-    // Check cache first
     const now = Math.floor(Date.now() / 1000);
     const cachedResponse = cache.get(parkingId);
+    
+    // STRATEGY 1: Return fresh cache immediately if available
     if (cachedResponse && now - cachedResponse.timestamp < CACHE_TIME) {
-      console.log(`Using cached data for parking ${parkingId} (${Math.round((now - cachedResponse.timestamp) / 60)} minutes old)`);
+      // If it's not too old, return immediately
+      console.log(`Using fresh cached data for parking ${parkingId} (${Math.round((now - cachedResponse.timestamp) / 60)} minutes old)`);
       return NextResponse.json(cachedResponse.data);
     }
     
-    // Fetch real-time data from Moscow parking API with retry logic
-    const apiUrl = `https://lk.parking.mos.ru/api/3.0/parkings/${parkingId}`;
+    // STRATEGY 2: Return stale cache AND refresh in background
+    if (cachedResponse && now - cachedResponse.timestamp < STALE_CACHE_TIME) {
+      // Only make a new request if we're not already fetching this parking ID
+      if (!requestTracker.inProgress.has(parkingId)) {
+        requestTracker.inProgress.add(parkingId);
+        
+        // Fetch fresh data in the background (don't await it)
+        setTimeout(async () => {
+          try {
+            const data = await fetchData(parkingId);
+            const processedData = processApiData(data);
+            
+            // Update cache with new data
+            cache.set(parkingId, { 
+              data: processedData, 
+              timestamp: Math.floor(Date.now() / 1000),
+              attempts: 0
+            });
+            console.log(`Background update successful for parking ${parkingId}`);
+          } catch (error) {
+            console.error(`Background update failed for parking ${parkingId}`);
+            // Increment failed attempt count
+            if (cachedResponse) {
+              cache.set(parkingId, {
+                ...cachedResponse,
+                attempts: (cachedResponse.attempts || 0) + 1
+              });
+            }
+          } finally {
+            requestTracker.inProgress.delete(parkingId);
+          }
+        }, 100);
+      }
+      
+      // Immediately return stale cache data with isStale flag
+      console.log(`Using stale cache for parking ${parkingId} while refreshing in background`);
+      return NextResponse.json({
+        ...cachedResponse.data,
+        isStale: true
+      });
+    }
     
-    try {
-      const response = await fetchWithRetry(
-        apiUrl, 
-        {
-          headers: {
-            "Accept": "application/json",
-            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "https://lk.parking.mos.ru/",
-            "Origin": "https://lk.parking.mos.ru",
-            "sec-ch-ua": `"Not_A Brand";v="8", "Chromium";v="120"`,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors", 
-            "Sec-Fetch-Site": "same-origin",
-            "Connection": "keep-alive"
-          },
-          cache: "no-store",
-        },
-        3, // 3 попытки
-        15000 // 15 секунд таймаут
-      );
-
-      if (!response.ok) {
-        console.error(`API returned status code: ${response.status}`);
-        throw new Error(`API request failed with status ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      if (!data.parking) {
-        console.error("Invalid response format from API:", JSON.stringify(data).substring(0, 200));
-        throw new Error("Invalid response format");
-      }
-      
-      // Extract relevant data
-      const parkingData = data.parking;
-      const spaces = parkingData.congestion?.spaces || {};
-      const overall = spaces.overall || {};
-      const handicapped = spaces.handicapped || {};
-      
-      const result = {
-        totalSpaces: overall.total || 0,
-        freeSpaces: overall.free || 0,
-        handicappedTotal: handicapped.total || 0,
-        handicappedFree: handicapped.free || 0,
-        dataAvailable: true,
-        lastUpdated: now
-      };
-      
-      // Update cache
-      cache.set(parkingId, { data: result, timestamp: now });
-      console.log(`Successfully fetched fresh data for parking ${parkingId}`);
-      
-      return NextResponse.json(result);
-    } catch (error: any) {
-      // Если данные не доступны и нет кэша, возвращаем заглушку
-      console.error(`Error fetching parking data: ${error.message}`);
-      
-      // Если в кэше есть старые данные, используем их и указываем, что данные могут быть устаревшими
-      if (cachedResponse) {
-        console.log(`Using stale cache for parking ${parkingId} (${Math.round((now - cachedResponse.timestamp) / 60)} minutes old)`);
-        return NextResponse.json({
-          ...cachedResponse.data,
-          isStale: true
+    // STRATEGY 3: No usable cache, make synchronous request
+    if (!requestTracker.inProgress.has(parkingId)) {
+      try {
+        requestTracker.inProgress.add(parkingId);
+        const data = await fetchData(parkingId);
+        const processedData = processApiData(data);
+        
+        // Save to cache
+        cache.set(parkingId, { 
+          data: processedData, 
+          timestamp: now,
+          attempts: 0
         });
+        
+        console.log(`Successfully fetched fresh data for parking ${parkingId}`);
+        return NextResponse.json(processedData);
+      } catch (error) {
+        // If we have any cached data (even very old), return it in case of error
+        if (cachedResponse) {
+          return NextResponse.json({
+            ...cachedResponse.data,
+            isStale: true,
+            dataAvailable: true
+          });
+        }
+        
+        // No cached data at all, return empty data
+        return NextResponse.json({
+          totalSpaces: 0,
+          freeSpaces: 0,
+          handicappedTotal: 0,
+          handicappedFree: 0,
+          dataAvailable: false
+        });
+      } finally {
+        requestTracker.inProgress.delete(parkingId);
       }
-      
-      // Иначе возвращаем пустые данные с правильной структурой
+    } else {
+      // Already fetching this parking ID, return a waiting status
+      console.log(`Request for ${parkingId} already in progress, returning temporary data`);
       return NextResponse.json({
         totalSpaces: 0,
-        freeSpaces: 0,
+        freeSpaces: 0, 
         handicappedTotal: 0,
         handicappedFree: 0,
-        dataAvailable: false
+        dataAvailable: true,
+        isLoading: true
       });
     }
   } catch (error) {
-    console.error(`Error in API handler: ${error}`);
+    console.error(`Critical error in API handler for ${parkingId}: ${error}`);
     return NextResponse.json(
-      { error: "Failed to fetch real-time parking data", dataAvailable: false },
+      { error: "Failed to fetch parking data", dataAvailable: false },
       { status: 500 }
     );
   }
