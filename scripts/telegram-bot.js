@@ -1,8 +1,4 @@
 const { Telegraf, Markup } = require('telegraf');
-const dotenv = require('dotenv');
-
-// Загружаем переменные окружения из .env.local
-dotenv.config({ path: '.env.local' });
 
 // Инициализация бота с токеном из переменных окружения
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
@@ -10,8 +6,8 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 // Получаем имя бота из переменных окружения
 const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || 'mosmetroparkingbot';
 
-// URL вашего мини-приложения
-const appUrl = 'https://parkingbot.vercel.app';
+// URL вашего мини-приложения - убедитесь, что URL корректный для вашего деплоя
+const appUrl = 'https://mosparkingbot.ru/';
 
 // Обработчик команды /start
 bot.start((ctx) => {
@@ -37,18 +33,23 @@ bot.on('text', (ctx) => {
   ctx.reply('Для открытия приложения используйте команду /start');
 });
 
-// Запуск бота
-bot.launch()
-  .then(() => {
-    console.log(`Бот @${botUsername} запущен успешно!`);
-    console.log(`Мини-приложение доступно по URL: ${appUrl}`);
-    console.log('Ожидание команд...');
-  })
-  .catch((err) => {
-    console.error('Ошибка при запуске бота:', err);
-    process.exit(1);
-  });
+// Запуск бота если есть токен
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  bot.launch()
+    .then(() => {
+      console.log(`Бот @${botUsername} запущен успешно!`);
+      console.log(`Мини-приложение доступно по URL: ${appUrl}`);
+      console.log('Ожидание команд...');
+    })
+    .catch((err) => {
+      console.error('Ошибка при запуске бота:', err);
+      process.exit(1);
+    });
 
-// Включаем graceful stop
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM')); 
+  // Включаем graceful stop
+  process.once('SIGINT', () => bot.stop('SIGINT'));
+  process.once('SIGTERM', () => bot.stop('SIGTERM'));
+} else {
+  console.error('TELEGRAM_BOT_TOKEN не найден в переменных окружения');
+  process.exit(1);
+} 

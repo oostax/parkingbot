@@ -344,8 +344,8 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              <div className="py-4 pl-4">
-                <h2 className="text-xl font-bold mb-4">
+              <div className="pt-2 px-4">
+                <h2 className="text-xl font-bold mb-4 sticky top-0 pt-2 pb-2 bg-white z-10">
                   Список перехватывающих парковок 
                   {filteredParkings.length !== parkings.length && (
                     <span className="text-sm font-normal ml-2 text-gray-500">

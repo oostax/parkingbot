@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { User, LogOut, Star, Clock, Settings } from "lucide-react";
+import { User, LogOut, Star } from "lucide-react";
 
 export default function ProfilePage() {
   const { data: session, status } = useSession();
@@ -69,7 +69,7 @@ export default function ProfilePage() {
         <div className="container flex justify-between items-center">
           <h1 className="text-base md:text-xl font-bold">Мой профиль</h1>
           <Button variant="outline" size="icon" onClick={() => router.push("/")}>
-            <Clock className="h-4 w-4" />
+            <LogOut className="h-4 w-4" />
           </Button>
         </div>
       </header>
@@ -89,7 +89,7 @@ export default function ProfilePage() {
               <div>
                 <CardTitle>{session.user?.name || "Пользователь"}</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  {session.user?.email || "Telegram пользователь"}
+                  Telegram пользователь
                 </p>
               </div>
             </div>
@@ -123,34 +123,10 @@ export default function ProfilePage() {
                     <div className="font-medium text-sm">Имя:</div>
                     <div className="col-span-2 text-sm">{session.user?.name || "Не указано"}</div>
                   </div>
-                  <div className="grid grid-cols-3 gap-4 items-center">
-                    <div className="font-medium text-sm">Email:</div>
-                    <div className="col-span-2 text-sm">{session.user?.email || "Не указан"}</div>
-                  </div>
                 </div>
               </TabsContent>
               <TabsContent value="settings" className="pt-4">
                 <div className="space-y-4">
-                  <Button 
-                    variant="outline" 
-                    className="w-full flex justify-between items-center" 
-                    onClick={() => router.push("/")}
-                  >
-                    <div className="flex items-center">
-                      <Clock className="h-4 w-4 mr-2" />
-                      <span>На главную</span>
-                    </div>
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    className="w-full flex justify-between items-center" 
-                    onClick={() => router.push("/favorites")}
-                  >
-                    <div className="flex items-center">
-                      <Star className="h-4 w-4 mr-2" />
-                      <span>Избранное</span>
-                    </div>
-                  </Button>
                   <Button 
                     variant="destructive" 
                     className="w-full flex justify-between items-center" 

@@ -87,67 +87,76 @@ export default function FavoritesList({ onParkingSelect, onToggleFavorite }: Fav
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 py-4">
-      {favorites.map(parking => (
-        <Card key={parking.id} className="overflow-hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-semibold flex justify-between items-start">
-              <div className="truncate pr-2">
-                {parking.name}
-                {parking.subway && (
-                  <Badge variant="outline" className="ml-2 text-xs">
-                    М {parking.subway}
-                  </Badge>
-                )}
-              </div>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={() => handleRemoveFavorite(parking)}
-                className="flex-shrink-0"
-              >
-                <Heart className="h-4 w-4 fill-current text-pink-500" />
-              </Button>
-            </CardTitle>
-            <div className="text-sm text-gray-500">
-              {parking.street} {parking.house}
-            </div>
-          </CardHeader>
-          
-          <CardContent className="pt-0">
-            <div className="flex justify-between items-center mt-2">
-              {parking.freeSpaces !== undefined && (
-                <div className="flex items-center">
-                  <CarFront className="h-4 w-4 mr-1 text-blue-500" />
-                  <span className="font-medium">
-                    {parking.freeSpaces} / {parking.totalSpaces || '?'}
-                  </span>
+    <div className="pt-4 px-4">
+      <h2 className="text-xl font-bold mb-4">
+        Избранные парковки 
+        <span className="text-sm font-normal ml-2 text-gray-500">
+          {favorites.length}
+        </span>
+      </h2>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {favorites.map(parking => (
+          <Card key={parking.id} className="overflow-hidden">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg font-semibold flex justify-between items-start">
+                <div className="truncate pr-2">
+                  {parking.name}
+                  {parking.subway && (
+                    <Badge variant="outline" className="ml-2 text-xs">
+                      М {parking.subway}
+                    </Badge>
+                  )}
                 </div>
-              )}
-              
-              <div className="flex gap-2">
                 <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={() => onParkingSelect(parking)}
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => handleRemoveFavorite(parking)}
+                  className="flex-shrink-0"
                 >
-                  Подробнее
+                  <Heart className="h-4 w-4 fill-current text-pink-500" />
                 </Button>
-                
-                <Button 
-                  size="sm" 
-                  onClick={() => {
-                    const url = `https://yandex.ru/maps/?text=${parking.name.replace(/ /g, '+')}&ll=${parking.lng},${parking.lat}&z=15`;
-                    window.open(url, '_blank');
-                  }}
-                >
-                  <Navigation2 className="h-4 w-4" />
-                </Button>
+              </CardTitle>
+              <div className="text-sm text-gray-500">
+                {parking.street} {parking.house}
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+            </CardHeader>
+            
+            <CardContent className="pt-0">
+              <div className="flex justify-between items-center mt-2">
+                {parking.freeSpaces !== undefined && (
+                  <div className="flex items-center">
+                    <CarFront className="h-4 w-4 mr-1 text-blue-500" />
+                    <span className="font-medium">
+                      {parking.freeSpaces} / {parking.totalSpaces || '?'}
+                    </span>
+                  </div>
+                )}
+                
+                <div className="flex gap-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => onParkingSelect(parking)}
+                  >
+                    Подробнее
+                  </Button>
+                  
+                  <Button 
+                    size="sm" 
+                    onClick={() => {
+                      const url = `https://yandex.ru/maps/?text=${parking.name.replace(/ /g, '+')}&ll=${parking.lng},${parking.lat}&z=15`;
+                      window.open(url, '_blank');
+                    }}
+                  >
+                    <Navigation2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 } 
