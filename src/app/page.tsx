@@ -14,6 +14,8 @@ import { getAllParkings } from "@/lib/parking-utils";
 import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
 import { StarIcon } from "lucide-react";
+import { User } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 // Import the map component dynamically to avoid SSR issues
 const MapComponent = dynamic(() => import("@/components/map-component"), {
@@ -56,6 +58,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("map");
   const [searchQuery, setSearchQuery] = useState("");
   const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
+  const router = useRouter();
 
   // Check if user has any favorites
   const hasFavorites = useMemo(() => {
@@ -228,8 +231,15 @@ export default function Home() {
                 <span className="text-xs md:text-sm hidden md:inline">
                   {session.user.name || "Пользователь"}
                 </span>
-                <Button variant="outline" size="sm" className="text-xs py-1 px-2 md:py-2 md:px-4" onClick={() => signOut()}>
-                  Выйти
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="text-xs py-1 px-2 md:py-2 md:px-4 flex items-center gap-1" 
+                  onClick={() => router.push("/profile")}
+                >
+                  <User className="h-3 w-3 md:h-4 md:w-4" />
+                  <span className="hidden xs:inline">Мой профиль</span>
+                  <span className="xs:hidden">Профиль</span>
                 </Button>
               </div>
             ) : (

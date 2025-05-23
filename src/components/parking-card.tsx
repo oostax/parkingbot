@@ -20,6 +20,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
   const { data: session } = useSession();
   const { toast } = useToast();
   const [isLoadingData, setIsLoadingData] = useState(true);
+  const [dataAvailable, setDataAvailable] = useState(true);
   const [realTimeData, setRealTimeData] = useState<{
     totalSpaces: number;
     freeSpaces: number;
@@ -30,24 +31,41 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
   
   useEffect(() => {
     let isMounted = true;
+    let retryCount = 0;
+    const maxRetries = 2;
     
     const fetchRealTimeData = async () => {
       setIsLoadingData(true);
       try {
         const data = await getParkingRealTimeData(parking.id);
         if (isMounted) {
-          setRealTimeData(data);
+          if (data) {
+            // Если получили данные с флагом dataAvailable: false
+            if ('dataAvailable' in data && data.dataAvailable === false) {
+              setDataAvailable(false);
+            } else {
+              setDataAvailable(true);
+              setRealTimeData(data);
+            }
+          } else {
+            setDataAvailable(false);
+          }
           setIsLoadingData(false);
         }
       } catch (error) {
         if (isMounted) {
           console.error("Error fetching parking data:", error);
+          
+          // Пробуем повторить запрос
+          if (retryCount < maxRetries) {
+            retryCount++;
+            console.log(`Retrying fetch attempt ${retryCount}...`);
+            setTimeout(fetchRealTimeData, 1000); // Повторяем через 1 секунду
+            return;
+          }
+          
           setIsLoadingData(false);
-          toast({
-            title: "Ошибка",
-            description: "Не удалось получить данные о загруженности парковки",
-            variant: "destructive",
-          });
+          setDataAvailable(false);
         }
       }
     };
@@ -144,7 +162,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
               </div>
-            ) : realTimeData ? (
+            ) : realTimeData && dataAvailable ? (
               <>
                 <div className="flex gap-2 py-2">
                   <div className={`flex-1 p-3 rounded-md ${getAvailabilityColor().bg} flex flex-col items-center`}>
@@ -188,9 +206,33 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
               </>
             ) : (
               <div className="h-32 flex items-center justify-center text-center">
-                <p className="text-sm text-muted-foreground">
-                  Данные о загруженности недоступны
-                </p>
+                <div className="text-center">
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Данные о загруженности недоступны
+                  </p>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => {
+                      setIsLoadingData(true);
+                      setTimeout(() => {
+                        getParkingRealTimeData(parking.id)
+                          .then(data => {
+                            if (data) {
+                              setRealTimeData(data);
+                              setDataAvailable(!('dataAvailable' in data && data.dataAvailable === false));
+                            } else {
+                              setDataAvailable(false);
+                            }
+                          })
+                          .catch(() => setDataAvailable(false))
+                          .finally(() => setIsLoadingData(false));
+                      }, 300);
+                    }}
+                  >
+                    <Loader2 className="h-3 w-3 mr-1" /> Обновить
+                  </Button>
+                </div>
               </div>
             )}
           </TabsContent>
