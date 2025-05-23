@@ -39,6 +39,8 @@ export async function getParkingRealTimeData(parkingId: string): Promise<{
   freeSpaces: number;
   handicappedTotal: number;
   handicappedFree: number;
+  dataAvailable?: boolean;
+  isStale?: boolean;
 } | null> {
   try {
     const response = await fetch(`/api/parkings/${parkingId}/live`);
@@ -47,11 +49,24 @@ export async function getParkingRealTimeData(parkingId: string): Promise<{
     }
     
     const data = await response.json();
+    
+    // Проверяем наличие флага dataAvailable
+    if ('dataAvailable' in data && data.dataAvailable === false) {
+      return {
+        totalSpaces: 0,
+        freeSpaces: 0,
+        handicappedTotal: 0,
+        handicappedFree: 0,
+        dataAvailable: false
+      };
+    }
+    
     return {
       totalSpaces: data.totalSpaces || 0,
       freeSpaces: data.freeSpaces || 0,
       handicappedTotal: data.handicappedTotal || 0,
       handicappedFree: data.handicappedFree || 0,
+      isStale: data.isStale || false
     };
   } catch (error) {
     console.error(`Error fetching real-time data for parking ${parkingId}:`, error);

@@ -47,10 +47,12 @@ function generateMockStats(parkingId: string): ParkingStats[] {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
-    const parkingId = await params.id;
+    // Get the id and await it according to Next.js requirement
+    const params = await context.params;
+    const parkingId = params.id;
     
     // Check cache first
     const now = Math.floor(Date.now() / 1000);

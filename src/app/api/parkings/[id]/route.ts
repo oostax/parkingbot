@@ -88,11 +88,12 @@ async function getParkingStats(parkingId: string) {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const session = await getServerSession(authOptions);
-    const parkingId = await params.id;
+    const { id } = await context.params;
+    const parkingId = id;
 
     // First, get the parking details from our JSON data
     const response = await fetch(`${process.env.NEXTAUTH_URL || request.nextUrl.origin}/data/parking_data.json`);

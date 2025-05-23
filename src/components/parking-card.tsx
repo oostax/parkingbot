@@ -21,6 +21,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
   const { toast } = useToast();
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [dataAvailable, setDataAvailable] = useState(true);
+  const [isStaleData, setIsStaleData] = useState(false);
   const [realTimeData, setRealTimeData] = useState<{
     totalSpaces: number;
     freeSpaces: number;
@@ -32,7 +33,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
   useEffect(() => {
     let isMounted = true;
     let retryCount = 0;
-    const maxRetries = 2;
+    const maxRetries = 3;
     
     const fetchRealTimeData = async () => {
       setIsLoadingData(true);
@@ -40,15 +41,19 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
         const data = await getParkingRealTimeData(parking.id);
         if (isMounted) {
           if (data) {
-            // Если получили данные с флагом dataAvailable: false
+            // Проверяем наличие флага dataAvailable
             if ('dataAvailable' in data && data.dataAvailable === false) {
               setDataAvailable(false);
+              setRealTimeData(null);
             } else {
               setDataAvailable(true);
+              // Проверяем наличие флага isStale (устаревшие данные из кэша)
+              setIsStaleData('isStale' in data && data.isStale === true);
               setRealTimeData(data);
             }
           } else {
             setDataAvailable(false);
+            setRealTimeData(null);
           }
           setIsLoadingData(false);
         }
@@ -56,16 +61,19 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
         if (isMounted) {
           console.error("Error fetching parking data:", error);
           
-          // Пробуем повторить запрос
+          // Пробуем повторить запрос с увеличивающейся задержкой
           if (retryCount < maxRetries) {
             retryCount++;
             console.log(`Retrying fetch attempt ${retryCount}...`);
-            setTimeout(fetchRealTimeData, 1000); // Повторяем через 1 секунду
+            // Экспоненциальная задержка: 1 секунда, затем 2, затем 4
+            const delay = Math.pow(2, retryCount - 1) * 1000;
+            setTimeout(fetchRealTimeData, delay);
             return;
           }
           
           setIsLoadingData(false);
           setDataAvailable(false);
+          setRealTimeData(null);
         }
       }
     };
@@ -103,8 +111,11 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
   }, [parking.id, toast]);
 
   const openInYandexMaps = () => {
+    // Use lng if available, fall back to lon, and if neither is available, use a default longitude
+    const longitude = parking.lng || parking.lon || 37.6156; // Default to Moscow center longitude if nothing available
+    
     window.open(
-      `https://yandex.ru/maps/?rtext=~${parking.lat},${parking.lng}`,
+      `https://yandex.ru/maps/?rtext=~${parking.lat},${longitude}`,
       "_blank"
     );
   };
@@ -164,6 +175,42 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
               </div>
             ) : realTimeData && dataAvailable ? (
               <>
+                {isStaleData && (
+                  <div className="mb-2 text-xs text-amber-600 bg-amber-50 p-1 rounded text-center">
+                    Данные могут быть устаревшими. <button 
+                      className="underline hover:text-amber-700"
+                      onClick={() => {
+                        setIsLoadingData(true);
+                        setIsStaleData(false);
+                        setTimeout(() => {
+                          getParkingRealTimeData(parking.id)
+                            .then(data => {
+                              if (data) {
+                                if ('dataAvailable' in data && data.dataAvailable === false) {
+                                  setDataAvailable(false);
+                                  setRealTimeData(null);
+                                } else {
+                                  setRealTimeData(data);
+                                  setDataAvailable(true);
+                                  setIsStaleData('isStale' in data && data.isStale === true);
+                                }
+                              } else {
+                                setDataAvailable(false);
+                                setRealTimeData(null);
+                              }
+                            })
+                            .catch(() => {
+                              setDataAvailable(false);
+                              setRealTimeData(null);
+                            })
+                            .finally(() => setIsLoadingData(false));
+                        }, 300);
+                      }}
+                    >
+                      Обновить
+                    </button>
+                  </div>
+                )}
                 <div className="flex gap-2 py-2">
                   <div className={`flex-1 p-3 rounded-md ${getAvailabilityColor().bg} flex flex-col items-center`}>
                     <div className="flex items-center justify-center gap-2">
@@ -309,38 +356,40 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
         </Tabs>
       </CardContent>
       
-      <CardFooter className="flex justify-between pt-2">
+      <CardFooter className="flex gap-2 pt-2">
         {session ? (
           <Button 
-            variant="outline" 
+            variant="outline"
+            className="flex-1 text-xs md:text-sm min-w-0"
             onClick={onToggleFavorite}
           >
             {parking.isFavorite ? (
               <>
-                <HeartOff className="mr-2 h-4 w-4" />
-                Удалить из избранного
+                <HeartOff className="mr-1 h-4 w-4 shrink-0" />
+                <span className="truncate">Удалить из избранного</span>
               </>
             ) : (
               <>
-                <Heart className="mr-2 h-4 w-4" />
-                В избранное
+                <Heart className="mr-1 h-4 w-4 shrink-0" />
+                <span className="truncate">В избранное</span>
               </>
             )}
           </Button>
         ) : (
           <Button 
-            variant="outline" 
+            variant="outline"
+            className="flex-1 text-xs md:text-sm min-w-0"
             onClick={() => toast({
               title: "Требуется авторизация",
               description: "Войдите через Telegram, чтобы добавить парковку в избранное",
               variant: "default",
             })}
           >
-            <Heart className="mr-2 h-4 w-4" />
-            В избранное
+            <Heart className="mr-1 h-4 w-4 shrink-0" />
+            <span className="truncate">В избранное</span>
           </Button>
         )}
-        <Button onClick={openInYandexMaps}>
+        <Button onClick={openInYandexMaps} className="w-[110px] whitespace-nowrap shrink-0">
           <MapPin className="mr-2 h-4 w-4" /> Маршрут
         </Button>
       </CardFooter>
