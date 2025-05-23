@@ -62,10 +62,17 @@ export async function getParkingRealTimeData(parkingId: string): Promise<{
     clearTimeout(timeoutId);
     
     if (!response.ok) {
-      throw new Error(`Failed to fetch parking data: ${response.status} ${response.statusText}`);
+      console.error(`Failed to fetch parking data: ${response.status} ${response.statusText}`);
+      return null;
     }
     
     const data = await response.json();
+    
+    // Check for error message in response
+    if (data.error) {
+      console.error(`API returned error: ${data.error}`);
+      return null;
+    }
     
     // Проверяем наличие флага dataAvailable
     if ('dataAvailable' in data && data.dataAvailable === false) {
@@ -94,7 +101,7 @@ export async function getParkingRealTimeData(parkingId: string): Promise<{
     } else {
       console.error(`Error fetching real-time data for parking ${parkingId}:`, error);
     }
-    throw error;
+    return null;
   }
 }
 

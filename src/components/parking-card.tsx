@@ -80,6 +80,35 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
             return;
           }
           
+          // If all retries failed, try direct proxy mode as last resort
+          if (retryCount === maxRetries) {
+            console.log("Trying direct proxy mode...");
+            try {
+              const response = await fetch(`/api/parkings/${parking.id}/live?direct=true`);
+              if (response.ok) {
+                const directData = await response.json();
+                if (directData?.parking?.congestion?.spaces) {
+                  const spaces = directData.parking.congestion.spaces;
+                  const overall = spaces.overall || {};
+                  const handicapped = spaces.handicapped || {};
+                  
+                  setRealTimeData({
+                    totalSpaces: overall.total || 0,
+                    freeSpaces: overall.free || 0,
+                    handicappedTotal: handicapped.total || 0,
+                    handicappedFree: handicapped.free || 0,
+                  });
+                  setDataAvailable(true);
+                  setIsStaleData(false);
+                  setIsLoadingData(false);
+                  return;
+                }
+              }
+            } catch (directError) {
+              console.error("Direct proxy mode also failed:", directError);
+            }
+          }
+          
           setIsLoadingData(false);
           setDataAvailable(false);
           setRealTimeData(null);

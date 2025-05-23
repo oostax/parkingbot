@@ -51,30 +51,27 @@ const fetchData = async (parkingId: string): Promise<any> => {
     // Increase timeout to 20 seconds
     const timeoutId = setTimeout(() => controller.abort(), 20000);
     
-    // Add random query parameter to bypass cache
-    const cacheBypass = `?_t=${Date.now()}`;
+    // Don't add cache-busting parameter - it might be causing issues
     
-    const response = await fetch(apiUrl + cacheBypass, {
+    const response = await fetch(apiUrl, {
       headers: {
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
         "User-Agent": userAgent,
         "Referer": "https://lk.parking.mos.ru/parkings",
         "Origin": "https://lk.parking.mos.ru",
+        "Host": "lk.parking.mos.ru",
         "sec-ch-ua": `"Not_A Brand";v="8", "Chromium";v="120"`,
         "sec-ch-ua-mobile": "?0",
         "sec-ch-ua-platform": "\"Windows\"",
         "Sec-Fetch-Dest": "empty",
         "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-        "Connection": "keep-alive",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache"
+        "Sec-Fetch-Site": "same-origin"
       },
       cache: "no-store",
       signal: controller.signal,
-      // Add credentials to include cookies if any
-      credentials: "same-origin",
+      // Don't include credentials as it might be causing issues
+      mode: "cors"
     });
     
     clearTimeout(timeoutId);
@@ -122,6 +119,54 @@ export async function GET(
 ) {
   const params = await context.params;
   const parkingId = params.id;
+  
+  // Check if this is a direct proxy request (for debugging)
+  const url = new URL(request.url);
+  const directProxy = url.searchParams.get('direct') === 'true';
+  
+  if (directProxy) {
+    console.log(`Direct proxy mode for parking ${parkingId}`);
+    try {
+      // Choose a random user agent
+      const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+      const apiUrl = `https://lk.parking.mos.ru/api/3.0/parkings/${parkingId}`;
+      
+      const response = await fetch(apiUrl, {
+        headers: {
+          "Accept": "application/json, text/plain, */*",
+          "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+          "User-Agent": userAgent,
+          "Referer": "https://lk.parking.mos.ru/parkings",
+          "Origin": "https://lk.parking.mos.ru",
+          "Host": "lk.parking.mos.ru",
+          "sec-ch-ua": `"Not_A Brand";v="8", "Chromium";v="120"`,
+          "sec-ch-ua-mobile": "?0",
+          "sec-ch-ua-platform": "\"Windows\"",
+          "Sec-Fetch-Dest": "empty",
+          "Sec-Fetch-Mode": "cors",
+          "Sec-Fetch-Site": "same-origin"
+        }
+      });
+      
+      if (!response.ok) {
+        return NextResponse.json(
+          { error: `Moscow API returned ${response.status}: ${response.statusText}` },
+          { status: response.status }
+        );
+      }
+      
+      const data = await response.json();
+      
+      // Return the raw data from Moscow API
+      return NextResponse.json(data);
+    } catch (error) {
+      console.error(`Direct proxy error: ${error}`);
+      return NextResponse.json(
+        { error: `Failed to proxy request: ${error}` },
+        { status: 500 }
+      );
+    }
+  }
   
   try {
     const now = Math.floor(Date.now() / 1000);
