@@ -84,11 +84,14 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
           if (retryCount === maxRetries) {
             console.log("Trying direct proxy mode...");
             try {
-              // Try our new direct proxy endpoint
-              const response = await fetch(`/api/parkings/direct/${parking.id}`);
+              // Try our new direct proxy endpoint with AllOrigins
+              const response = await fetch(`/api/parkings/direct/${parking.id}?_t=${Date.now()}`);
               if (response.ok) {
                 const directData = await response.json();
+                
+                // Try to extract data from various response formats
                 if (directData?.parking?.congestion?.spaces) {
+                  // Direct Moscow API format
                   const spaces = directData.parking.congestion.spaces;
                   const overall = spaces.overall || {};
                   const handicapped = spaces.handicapped || {};
@@ -103,6 +106,29 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                   setIsStaleData(false);
                   setIsLoadingData(false);
                   return;
+                } else if (directData.contents) {
+                  // AllOrigins wrapped format
+                  try {
+                    const parsedContents = JSON.parse(directData.contents);
+                    if (parsedContents?.parking?.congestion?.spaces) {
+                      const spaces = parsedContents.parking.congestion.spaces;
+                      const overall = spaces.overall || {};
+                      const handicapped = spaces.handicapped || {};
+                      
+                      setRealTimeData({
+                        totalSpaces: overall.total || 0,
+                        freeSpaces: overall.free || 0,
+                        handicappedTotal: handicapped.total || 0,
+                        handicappedFree: handicapped.free || 0,
+                      });
+                      setDataAvailable(true);
+                      setIsStaleData(false);
+                      setIsLoadingData(false);
+                      return;
+                    }
+                  } catch (parseError) {
+                    console.error("Failed to parse AllOrigins contents:", parseError);
+                  }
                 }
               } else {
                 console.error("Direct proxy mode failed:", await response.text());

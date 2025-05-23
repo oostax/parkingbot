@@ -24,9 +24,17 @@ export async function GET(
     
     // Use a CORS proxy to bypass network restrictions
     const apiUrl = `https://lk.parking.mos.ru/api/3.0/parkings/${parkingId}`;
-    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
-    
-    console.log(`Direct proxy: Fetching data for parking ${parkingId}`);
+    // Try multiple CORS proxies in case one fails
+    const proxyServices = [
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`,
+      `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`,
+      `https://cors-anywhere.herokuapp.com/${apiUrl}`
+    ];
+
+    // Use the first proxy by default
+    const proxyUrl = proxyServices[0];
+
+    console.log(`Direct proxy: Fetching data for parking ${parkingId} via AllOrigins proxy`);
     
     // Create AbortController with a timeout
     const controller = new AbortController();

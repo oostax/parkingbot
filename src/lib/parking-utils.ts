@@ -32,6 +32,67 @@ export async function getAllParkings(): Promise<ParkingInfo[]> {
 }
 
 /**
+ * Parse parking data from various response formats
+ */
+function parseParkingData(data: any): {
+  totalSpaces: number;
+  freeSpaces: number;
+  handicappedTotal: number;
+  handicappedFree: number;
+  dataAvailable: boolean;
+} | null {
+  // Case 1: Direct API response format
+  if ('totalSpaces' in data && 'freeSpaces' in data) {
+    return {
+      totalSpaces: data.totalSpaces || 0,
+      freeSpaces: data.freeSpaces || 0,
+      handicappedTotal: data.handicappedTotal || 0,
+      handicappedFree: data.handicappedFree || 0,
+      dataAvailable: !('dataAvailable' in data && data.dataAvailable === false)
+    };
+  }
+  
+  // Case 2: Raw Moscow API response format
+  if (data.parking?.congestion?.spaces) {
+    const spaces = data.parking.congestion.spaces;
+    const overall = spaces.overall || {};
+    const handicapped = spaces.handicapped || {};
+    
+    return {
+      totalSpaces: overall.total || 0,
+      freeSpaces: overall.free || 0,
+      handicappedTotal: handicapped.total || 0,
+      handicappedFree: handicapped.free || 0,
+      dataAvailable: true
+    };
+  }
+  
+  // Case 3: AllOrigins wrapped response
+  if (data.contents) {
+    try {
+      const parsedContents = JSON.parse(data.contents);
+      if (parsedContents.parking?.congestion?.spaces) {
+        const spaces = parsedContents.parking.congestion.spaces;
+        const overall = spaces.overall || {};
+        const handicapped = spaces.handicapped || {};
+        
+        return {
+          totalSpaces: overall.total || 0,
+          freeSpaces: overall.free || 0,
+          handicappedTotal: handicapped.total || 0,
+          handicappedFree: handicapped.free || 0,
+          dataAvailable: true
+        };
+      }
+    } catch (error) {
+      console.error("Failed to parse AllOrigins contents:", error);
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Fetch real-time data for a specific parking
  */
 export async function getParkingRealTimeData(parkingId: string): Promise<{
@@ -84,42 +145,17 @@ export async function getParkingRealTimeData(parkingId: string): Promise<{
         continue; // Try next approach
       }
       
-      // Handle direct proxy response format
-      if (approach.name === "Direct Proxy" && data.parking?.congestion?.spaces) {
-        const spaces = data.parking.congestion.spaces;
-        const overall = spaces.overall || {};
-        const handicapped = spaces.handicapped || {};
-        
+      // Parse the data using our unified parser
+      const parsedData = parseParkingData(data);
+      if (parsedData) {
         console.log(`Successfully loaded data for parking ${parkingId} using ${approach.name}`);
         return {
-          totalSpaces: overall.total || 0,
-          freeSpaces: overall.free || 0,
-          handicappedTotal: handicapped.total || 0,
-          handicappedFree: handicapped.free || 0,
-          dataAvailable: true
+          ...parsedData,
+          isStale: data.isStale || false
         };
       }
       
-      // Handle standard API response format
-      if ('dataAvailable' in data && data.dataAvailable === false) {
-        console.log(`No data available for parking ${parkingId} using ${approach.name}`);
-        return {
-          totalSpaces: 0,
-          freeSpaces: 0,
-          handicappedTotal: 0,
-          handicappedFree: 0,
-          dataAvailable: false
-        };
-      }
-      
-      console.log(`Successfully loaded data for parking ${parkingId} using ${approach.name}`);
-      return {
-        totalSpaces: data.totalSpaces || 0,
-        freeSpaces: data.freeSpaces || 0,
-        handicappedTotal: data.handicappedTotal || 0,
-        handicappedFree: data.handicappedFree || 0,
-        isStale: data.isStale || false
-      };
+      console.error(`${approach.name} returned unrecognized data format`);
     } catch (error: any) {
       // Store the error for reporting if all approaches fail
       lastError = error;

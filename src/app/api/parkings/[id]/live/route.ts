@@ -54,27 +54,35 @@ const fetchData = async (parkingId: string): Promise<any> => {
   // Choose a random user agent
   const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
   
-  // Try direct request first, then fallback to CORS proxy if needed
-  let useFallbackProxy = false;
-  let attempts = 0;
-  const maxAttempts = 2;
+  // Try different approaches in sequence
+  const approaches = [
+    {
+      name: "AllOrigins proxy",
+      url: `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`
+    },
+    {
+      name: "Direct request",
+      url: apiUrl
+    },
+    {
+      name: "CORSProxy.io",
+      url: `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`
+    }
+  ];
   
-  while (attempts < maxAttempts) {
+  let lastError = null;
+  
+  // Try each approach in sequence
+  for (const approach of approaches) {
     try {
-      attempts++;
-      console.log(`Fetching data for parking ${parkingId} from Moscow API${useFallbackProxy ? ' via proxy' : ''}... (attempt ${attempts}/${maxAttempts})`);
+      console.log(`Trying ${approach.name} for parking ${parkingId}...`);
       
       // Create AbortController with a longer timeout (30 seconds)
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
-        console.log(`Aborting request for parking ${parkingId} due to timeout`);
+        console.log(`Aborting ${approach.name} request for parking ${parkingId} due to timeout`);
         controller.abort('Request timeout');
       }, 30000);
-      
-      // Determine URL based on whether we're using the proxy or not
-      const fetchUrl = useFallbackProxy 
-        ? `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`
-        : apiUrl;
       
       // Use node-fetch options that help with connection issues
       const fetchOptions: RequestInit = {
@@ -100,60 +108,65 @@ const fetchData = async (parkingId: string): Promise<any> => {
       };
       
       // Make the request with proper error handling
-      const response = await fetch(fetchUrl, fetchOptions);
+      const response = await fetch(approach.url, fetchOptions);
       clearTimeout(timeoutId);
       
       if (!response.ok) {
-        console.error(`API request failed with status ${response.status}: ${response.statusText}`);
-        
-        // If this was a direct request and failed, try the proxy
-        if (!useFallbackProxy && attempts < maxAttempts) {
-          useFallbackProxy = true;
-          continue;
-        }
-        
-        throw new Error(`API request failed with status ${response.status}`);
+        console.error(`${approach.name} request failed with status ${response.status}: ${response.statusText}`);
+        continue; // Try next approach
       }
       
       const data = await response.json();
       
-      if (!data.parking) {
-        console.error("Invalid response format:", data);
-        throw new Error("Invalid response format");
+      if (!data.parking && !data.contents) {
+        console.error(`${approach.name} returned invalid format:`, data);
+        continue; // Try next approach
       }
       
-      return data;
+      // Handle AllOrigins response format which wraps the content in a 'contents' field
+      if (data.contents) {
+        try {
+          const parsedContents = JSON.parse(data.contents);
+          if (parsedContents.parking) {
+            console.log(`${approach.name} successful for parking ${parkingId}`);
+            return parsedContents;
+          }
+        } catch (parseError) {
+          console.error(`Failed to parse ${approach.name} contents:`, parseError);
+          continue;
+        }
+      }
+      
+      // Handle direct response
+      if (data.parking) {
+        console.log(`${approach.name} successful for parking ${parkingId}`);
+        return data;
+      }
+      
+      // If we get here, the response format wasn't recognized
+      console.error(`${approach.name} returned unrecognized format`);
+      continue;
     } catch (error: any) {
+      lastError = error;
+      
       // Check if it's a timeout error
       if (error.name === 'AbortError' || 
           (error.cause && error.cause.code === 'UND_ERR_CONNECT_TIMEOUT')) {
-        console.error(`Connection timeout for parking ${parkingId}`);
-        
-        // If this was a direct request and failed, try the proxy
-        if (!useFallbackProxy && attempts < maxAttempts) {
-          useFallbackProxy = true;
-          continue;
+        console.error(`${approach.name} connection timeout for parking ${parkingId}`);
+      } else {
+        console.error(`${approach.name} error for parking ${parkingId}: ${error.message}`);
+        if (error.cause) {
+          console.error(`Cause: ${JSON.stringify(error.cause)}`);
         }
-        
-        throw new Error(`Connection timeout for parking ${parkingId}`);
       }
       
-      console.error(`Error fetching parking data for ID ${parkingId}: ${error.message}`);
-      if (error.cause) {
-        console.error(`Cause: ${JSON.stringify(error.cause)}`);
-      }
-      
-      // If this was a direct request and failed, try the proxy
-      if (!useFallbackProxy && attempts < maxAttempts) {
-        useFallbackProxy = true;
-        continue;
-      }
-      
-      throw error;
+      // Continue to the next approach
+      continue;
     }
   }
   
-  throw new Error(`Failed to fetch data for parking ${parkingId} after ${maxAttempts} attempts`);
+  // All approaches failed
+  throw new Error(`All approaches failed for parking ${parkingId}`);
 };
 
 // Process the API response data
