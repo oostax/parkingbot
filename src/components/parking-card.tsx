@@ -22,7 +22,6 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [dataAvailable, setDataAvailable] = useState(true);
   const [isStaleData, setIsStaleData] = useState(false);
-  const [isMockData, setIsMockData] = useState(false);
   const [realTimeData, setRealTimeData] = useState<{
     totalSpaces: number;
     freeSpaces: number;
@@ -39,13 +38,9 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
     const fetchRealTimeData = async () => {
       setIsLoadingData(true);
       try {
-        console.log(`[CLIENT] Fetching data for parking ${parking.id}...`);
         const data = await getParkingRealTimeData(parking.id);
         if (isMounted) {
           if (data) {
-            // Check if this is mock data
-            setIsMockData('isMock' in data && data.isMock === true);
-            
             // Проверяем наличие флага dataAvailable
             if ('dataAvailable' in data && data.dataAvailable === false) {
               setDataAvailable(false);
@@ -69,89 +64,16 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
           // Пробуем повторить запрос с увеличивающейся задержкой
           if (retryCount < maxRetries) {
             retryCount++;
-            console.log(`Retrying fetch attempt ${retryCount}/${maxRetries}...`);
+            console.log(`Retrying fetch attempt ${retryCount}...`);
             // Экспоненциальная задержка: 1 секунда, затем 2, затем 4
             const delay = Math.pow(2, retryCount - 1) * 1000;
-            
-            // Show toast notification about retry
-            toast({
-              title: "Загрузка данных...",
-              description: `Попытка ${retryCount}/${maxRetries}`,
-              duration: delay - 100,
-            });
-            
             setTimeout(fetchRealTimeData, delay);
             return;
-          }
-          
-          // If all retries failed, try direct proxy mode as last resort
-          if (retryCount === maxRetries) {
-            console.log("Trying direct proxy mode...");
-            try {
-              // Try our new direct proxy endpoint with AllOrigins
-              const response = await fetch(`/api/parkings/direct/${parking.id}?_t=${Date.now()}`);
-              if (response.ok) {
-                const directData = await response.json();
-                
-                // Try to extract data from various response formats
-                if (directData?.parking?.congestion?.spaces) {
-                  // Direct Moscow API format
-                  const spaces = directData.parking.congestion.spaces;
-                  const overall = spaces.overall || {};
-                  const handicapped = spaces.handicapped || {};
-                  
-                  setRealTimeData({
-                    totalSpaces: overall.total || 0,
-                    freeSpaces: overall.free || 0,
-                    handicappedTotal: handicapped.total || 0,
-                    handicappedFree: handicapped.free || 0,
-                  });
-                  setDataAvailable(true);
-                  setIsStaleData(false);
-                  setIsLoadingData(false);
-                  return;
-                } else if (directData.contents) {
-                  // AllOrigins wrapped format
-                  try {
-                    const parsedContents = JSON.parse(directData.contents);
-                    if (parsedContents?.parking?.congestion?.spaces) {
-                      const spaces = parsedContents.parking.congestion.spaces;
-                      const overall = spaces.overall || {};
-                      const handicapped = spaces.handicapped || {};
-                      
-                      setRealTimeData({
-                        totalSpaces: overall.total || 0,
-                        freeSpaces: overall.free || 0,
-                        handicappedTotal: handicapped.total || 0,
-                        handicappedFree: handicapped.free || 0,
-                      });
-                      setDataAvailable(true);
-                      setIsStaleData(false);
-                      setIsLoadingData(false);
-                      return;
-                    }
-                  } catch (parseError) {
-                    console.error("Failed to parse AllOrigins contents:", parseError);
-                  }
-                }
-              } else {
-                console.error("Direct proxy mode failed:", await response.text());
-              }
-            } catch (directError) {
-              console.error("Direct proxy mode also failed:", directError);
-            }
           }
           
           setIsLoadingData(false);
           setDataAvailable(false);
           setRealTimeData(null);
-          
-          // Show error toast
-          toast({
-            title: "Ошибка загрузки данных",
-            description: "Не удалось загрузить данные о парковке",
-            variant: "destructive",
-          });
         }
       }
     };
@@ -289,13 +211,6 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                     </button>
                   </div>
                 )}
-                
-                {isMockData && (
-                  <div className="mb-2 text-xs text-purple-600 bg-purple-50 p-1 rounded text-center">
-                    Приблизительные данные. Точная информация временно недоступна.
-                  </div>
-                )}
-                
                 <div className="flex gap-2 py-2">
                   <div className={`flex-1 p-3 rounded-md ${getAvailabilityColor().bg} flex flex-col items-center`}>
                     <div className="flex items-center justify-center gap-2">

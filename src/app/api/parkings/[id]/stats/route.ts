@@ -1,39 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ParkingStats } from "@/types/parking";
 
-// Cache responses for 1 hour
-const CACHE_TIME = 3600; // seconds
-const cache = new Map<string, { data: Record<string, unknown>; timestamp: number }>();
+// Cache responses for 6 hours
+const CACHE_TIME = 21600; // seconds (6 hours)
+const cache = new Map<string, { data: any; timestamp: number }>();
 
-/**
- * Generate mock hourly stats for a parking
- * In a production app, this would fetch real historical data
- */
 function generateMockStats(parkingId: string): ParkingStats[] {
+  // Generate statistics based on parking ID to ensure consistent results
+  const parkingIdNumber = parseInt(parkingId, 10) || 0;
   const stats: ParkingStats[] = [];
   
-  // Base values for this parking (deterministic based on ID)
-  const idSum = parkingId.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  const baseCapacity = 50 + (idSum % 200); // Between 50 and 250 spaces
-  const baseOccupancy = 0.4 + ((idSum % 40) / 100); // Between 0.4 and 0.8
+  // Seed for pseudo-random generation that's consistent for the same parking ID
+  const seed = parkingIdNumber % 100;
   
-  // Generate stats for each hour
   for (let hour = 0; hour < 24; hour++) {
-    // Peak hours have higher occupancy (morning and evening rush hours)
-    const isPeakHour = (hour >= 7 && hour <= 10) || (hour >= 16 && hour <= 19);
-    const isNightHour = hour < 6 || hour > 21;
+    // Generate a pattern where early morning has more free spaces
+    // and rush hours (8-10 AM, 5-7 PM) have fewer
+    let baseAvailability = 0.7;
     
-    // Calculate occupancy based on hour
-    let occupancy = baseOccupancy;
-    if (isPeakHour) occupancy += 0.3;
-    if (isNightHour) occupancy -= 0.2;
+    // Morning rush hour: 8-10 AM
+    if (hour >= 8 && hour <= 10) {
+      baseAvailability = 0.3;
+    }
+    // Evening rush hour: 5-7 PM
+    else if (hour >= 17 && hour <= 19) {
+      baseAvailability = 0.2;
+    }
+    // Late night: more available spaces
+    else if (hour >= 22 || hour <= 5) {
+      baseAvailability = 0.9;
+    }
     
-    // Add some variation but ensure it's between 0.1 and 0.95
-    const randomFactor = Math.sin(idSum * hour) * 0.15;
-    occupancy = Math.max(0.1, Math.min(0.95, occupancy + randomFactor));
+    // Add some variation based on the parking ID
+    const variation = ((seed * (hour + 1)) % 20) / 100; // +/- 10%
+    let freePercentage = baseAvailability + variation - 0.1;
     
-    // Calculate free spaces
-    const freeSpaces = Math.round(baseCapacity * (1 - occupancy));
+    // Ensure it's within bounds (0-1)
+    freePercentage = Math.max(0.05, Math.min(0.95, freePercentage));
+    
+    // Assume total spaces is between 50-200 based on parking ID
+    const totalSpaces = 50 + (parkingIdNumber % 150);
+    const freeSpaces = Math.round(totalSpaces * freePercentage);
+    const occupancy = 1 - freePercentage;
     
     stats.push({
       hour,
