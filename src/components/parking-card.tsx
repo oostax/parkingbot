@@ -22,6 +22,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [dataAvailable, setDataAvailable] = useState(true);
   const [isStaleData, setIsStaleData] = useState(false);
+  const [isMockData, setIsMockData] = useState(false);
   const [realTimeData, setRealTimeData] = useState<{
     totalSpaces: number;
     freeSpaces: number;
@@ -38,10 +39,13 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
     const fetchRealTimeData = async () => {
       setIsLoadingData(true);
       try {
-        console.log(`Fetching data for parking ${parking.id}...`);
+        console.log(`[CLIENT] Fetching data for parking ${parking.id}...`);
         const data = await getParkingRealTimeData(parking.id);
         if (isMounted) {
           if (data) {
+            // Check if this is mock data
+            setIsMockData('isMock' in data && data.isMock === true);
+            
             // Проверяем наличие флага dataAvailable
             if ('dataAvailable' in data && data.dataAvailable === false) {
               setDataAvailable(false);
@@ -285,6 +289,13 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                     </button>
                   </div>
                 )}
+                
+                {isMockData && (
+                  <div className="mb-2 text-xs text-purple-600 bg-purple-50 p-1 rounded text-center">
+                    Приблизительные данные. Точная информация временно недоступна.
+                  </div>
+                )}
+                
                 <div className="flex gap-2 py-2">
                   <div className={`flex-1 p-3 rounded-md ${getAvailabilityColor().bg} flex flex-col items-center`}>
                     <div className="flex items-center justify-center gap-2">

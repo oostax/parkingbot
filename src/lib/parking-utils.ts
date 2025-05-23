@@ -40,7 +40,11 @@ function parseParkingData(data: any): {
   handicappedTotal: number;
   handicappedFree: number;
   dataAvailable: boolean;
+  isMock?: boolean;
 } | null {
+  // Check for mock data flag
+  const isMock = data.isMock === true;
+  
   // Case 1: Direct API response format
   if ('totalSpaces' in data && 'freeSpaces' in data) {
     return {
@@ -48,7 +52,8 @@ function parseParkingData(data: any): {
       freeSpaces: data.freeSpaces || 0,
       handicappedTotal: data.handicappedTotal || 0,
       handicappedFree: data.handicappedFree || 0,
-      dataAvailable: !('dataAvailable' in data && data.dataAvailable === false)
+      dataAvailable: !('dataAvailable' in data && data.dataAvailable === false),
+      isMock
     };
   }
   
@@ -63,7 +68,8 @@ function parseParkingData(data: any): {
       freeSpaces: overall.free || 0,
       handicappedTotal: handicapped.total || 0,
       handicappedFree: handicapped.free || 0,
-      dataAvailable: true
+      dataAvailable: true,
+      isMock
     };
   }
   
@@ -81,7 +87,8 @@ function parseParkingData(data: any): {
           freeSpaces: overall.free || 0,
           handicappedTotal: handicapped.total || 0,
           handicappedFree: handicapped.free || 0,
-          dataAvailable: true
+          dataAvailable: true,
+          isMock
         };
       }
     } catch (error) {
