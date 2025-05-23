@@ -57,16 +57,20 @@ const fetchData = async (parkingId: string): Promise<any> => {
   // Try different approaches in sequence
   const approaches = [
     {
-      name: "AllOrigins proxy",
-      url: `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`
+      name: "CORSProxy.io",
+      url: `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`
     },
     {
       name: "Direct request",
       url: apiUrl
     },
     {
-      name: "CORSProxy.io",
-      url: `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`
+      name: "AllOrigins proxy",
+      url: `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`
+    },
+    {
+      name: "CORS.sh",
+      url: `https://cors.sh/${apiUrl}`
     }
   ];
   

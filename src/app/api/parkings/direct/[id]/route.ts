@@ -26,52 +26,80 @@ export async function GET(
     const apiUrl = `https://lk.parking.mos.ru/api/3.0/parkings/${parkingId}`;
     // Try multiple CORS proxies in case one fails
     const proxyServices = [
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`,
-      `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`,
-      `https://cors-anywhere.herokuapp.com/${apiUrl}`
+      {
+        name: "CORSProxy.io",
+        url: `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`
+      },
+      {
+        name: "AllOrigins",
+        url: `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`
+      },
+      {
+        name: "CORS Anywhere",
+        url: `https://cors-anywhere.herokuapp.com/${apiUrl}`
+      },
+      {
+        name: "CORS.sh",
+        url: `https://cors.sh/${apiUrl}`
+      }
     ];
 
-    // Use the first proxy by default
-    const proxyUrl = proxyServices[0];
-
-    console.log(`Direct proxy: Fetching data for parking ${parkingId} via AllOrigins proxy`);
+    // Try each proxy in sequence
+    let lastError: Error | null = null;
     
-    // Create AbortController with a timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort('Request timeout'), 25000);
-    
-    const response = await fetch(proxyUrl, {
-      headers: {
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-        "User-Agent": userAgent,
-        "Referer": "https://lk.parking.mos.ru/parkings",
-        "Origin": "https://lk.parking.mos.ru",
-        "Host": "lk.parking.mos.ru",
-        "sec-ch-ua": `"Not_A Brand";v="8", "Chromium";v="120"`,
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": "\"Windows\"",
-      },
-      cache: "no-store" as RequestCache,
-      signal: controller.signal,
-      mode: "cors" as RequestMode,
-      keepalive: true
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (!response.ok) {
-      console.error(`Direct proxy: API request failed with status ${response.status}`);
-      return NextResponse.json(
-        { error: `Failed to fetch data: ${response.status} ${response.statusText}` },
-        { status: response.status }
-      );
+    for (const proxy of proxyServices) {
+      try {
+        console.log(`Direct proxy: Trying ${proxy.name} for parking ${parkingId}`);
+        
+        // Create AbortController with a timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort('Request timeout'), 25000);
+        
+        const response = await fetch(proxy.url, {
+          headers: {
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+            "User-Agent": userAgent,
+            "Referer": "https://lk.parking.mos.ru/parkings",
+            "Origin": "https://lk.parking.mos.ru",
+            "Host": "lk.parking.mos.ru",
+            "sec-ch-ua": `"Not_A Brand";v="8", "Chromium";v="120"`,
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\"",
+          },
+          cache: "no-store" as RequestCache,
+          signal: controller.signal,
+          mode: "cors" as RequestMode,
+          keepalive: true
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          console.error(`${proxy.name} proxy request failed with status ${response.status}: ${response.statusText}`);
+          continue; // Try next proxy
+        }
+        
+        const data = await response.json();
+        console.log(`${proxy.name} proxy successful for parking ${parkingId}`);
+        
+        // Return the raw data
+        return NextResponse.json(data);
+      } catch (error: any) {
+        lastError = error;
+        console.error(`${proxy.name} proxy error for ${parkingId}:`, error.message);
+        // Continue to next proxy
+      }
     }
     
-    const data = await response.json();
-    
-    // Return the raw data
-    return NextResponse.json(data);
+    // All proxies failed
+    return NextResponse.json(
+      { 
+        error: "All proxy services failed",
+        details: lastError ? lastError.message : "Unknown error"
+      },
+      { status: 502 }
+    );
   } catch (error: any) {
     console.error(`Direct proxy: Error fetching data for ${parkingId}:`, error);
     
