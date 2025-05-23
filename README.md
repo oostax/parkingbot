@@ -71,3 +71,64 @@
 2. Настройте веб-приложение для бота
 3. Добавьте URL вашего приложения в настройки бота
 4. Установите токен бота в `.env.local`
+
+## Ubuntu Server Deployment
+
+This project can be easily deployed on an Ubuntu server with minimal configuration.
+
+### Prerequisites
+
+- Ubuntu server (18.04 LTS or newer recommended)
+- Domain name pointed to your server (mosparkingbot.ru)
+- Basic SSH and terminal knowledge
+
+### Quick Deployment
+
+1. Clone this repository on your Ubuntu server:
+   ```bash
+   git clone https://github.com/yourusername/parkingbot.git
+   cd parkingbot
+   ```
+
+2. Make the deployment script executable:
+   ```bash
+   chmod +x deploy.sh
+   ```
+
+3. Run the deployment script:
+   ```bash
+   ./deploy.sh
+   ```
+
+4. The script will:
+   - Install required dependencies (Node.js, PM2, Nginx)
+   - Build the Next.js application
+   - Configure Nginx as a reverse proxy
+   - Set up PM2 to manage the application processes
+   - Start both the Next.js app and Telegram bot
+
+5. Enable HTTPS with Let's Encrypt (recommended):
+   ```bash
+   sudo apt-get install certbot python3-certbot-nginx
+   sudo certbot --nginx -d mosparkingbot.ru -d www.mosparkingbot.ru
+   ```
+
+Your application should now be running at https://mosparkingbot.ru
+
+### Manual Management
+
+- View running processes:
+  ```bash
+  pm2 list
+  ```
+
+- View application logs:
+  ```bash
+  pm2 logs nextjs-app
+  pm2 logs telegram-bot
+  ```
+
+- Restart the application:
+  ```bash
+  pm2 restart ecosystem.config.js
+  ```

@@ -16,7 +16,7 @@ const cache = new Map<string, {
 // Session management - create one persistent axios instance instead of using fetch
 // This mirrors the Python requests.Session() approach
 const apiClient = axios.create({
-  timeout: 10000,
+  timeout: parseInt(process.env.API_TIMEOUT || '30000'),
   headers: {
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
