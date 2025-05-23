@@ -21,6 +21,31 @@ const MapComponent = dynamic(() => import("@/components/map-component"), {
   loading: () => <div className="w-full h-[calc(100vh-250px)] md:h-[calc(100vh-150px)] bg-slate-100 animate-pulse" />,
 });
 
+// Инициализация Telegram WebApp
+const initWebApp = () => {
+  if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+    try {
+      // Используем тип any для работы с Telegram API
+      const tg = window.Telegram.WebApp as any;
+      tg.expand();
+      tg.setHeaderColor('#FFFFFF');
+      
+      // Отключение вертикальных свайпов для предотвращения сворачивания при работе с картой
+      if (tg.disableVerticalSwipes) {
+        tg.disableVerticalSwipes();
+      }
+      
+      // Настройка safe area для корректного отображения
+      if (tg.safeAreaInset) {
+        document.documentElement.style.setProperty('--tg-safe-area-top', `${tg.safeAreaInset.top || 0}px`);
+        document.documentElement.style.setProperty('--tg-safe-area-bottom', `${tg.safeAreaInset.bottom || 0}px`);
+      }
+    } catch (error) {
+      console.error("Error initializing Telegram WebApp:", error);
+    }
+  }
+};
+
 export default function Home() {
   const { data: session } = useSession();
   const { toast } = useToast();
@@ -185,12 +210,13 @@ export default function Home() {
 
   // Load parkings on initial render
   useEffect(() => {
+    initWebApp(); // Инициализация Telegram WebApp при загрузке
     fetchParkings();
-  }, [session, fetchParkings]);
+  }, []);
 
   return (
     <main className="min-h-screen flex flex-col">
-      <header className="p-2 md:p-4 pt-6 md:pt-4 bg-white shadow-sm fixed top-0 left-0 right-0 z-50">
+      <header className="p-2 md:p-4 pt-[calc(var(--tg-safe-area-top)+1.5rem)] md:pt-[calc(var(--tg-safe-area-top)+1rem)] bg-white shadow-sm fixed top-0 left-0 right-0 z-50">
         <div className="container flex justify-between items-center">
           <h1 className="text-base md:text-xl font-bold truncate mr-2">
             <span className="hidden sm:inline">Перехватывающие парковки</span>
