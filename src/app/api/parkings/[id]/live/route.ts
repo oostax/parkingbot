@@ -1,22 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Cache responses for 30 minutes instead of 10 to drastically reduce API calls
-const CACHE_TIME = 1800; // seconds (30 minutes)
-const STALE_CACHE_TIME = 86400; // seconds (24 hours) - after this, data is considered outdated but still usable
+// Cache responses for longer periods to reduce API calls and improve reliability
+const CACHE_TIME = 3600; // seconds (1 hour)
+const STALE_CACHE_TIME = 86400 * 7; // seconds (7 days) - after this, data is considered outdated but still usable
 
 // Global request tracking - this helps prevent parallel requests to the Moscow API
 const requestTracker = {
   inProgress: new Set<string>(),
   lastRequest: 0,
-  minRequestDelay: 2000, // minimum 2 seconds between requests to the external API
+  minRequestDelay: 5000, // minimum 5 seconds between requests to the external API
 };
 
 // Cache structure holding data for each parking ID
 const cache = new Map<string, { 
-  data: Record<string, number | boolean>; 
+  data: Record<string, number | boolean | string>; 
   timestamp: number;
   attempts: number; 
 }>();
+
+// Initialize cache from a persistent store if available
+try {
+  // In a serverless environment, we need to recreate the cache on each cold start
+  // This is a limitation of Vercel's serverless functions
+  console.log("Initializing parking data cache...");
+} catch (error) {
+  console.error("Error initializing cache:", error);
+}
 
 // User agent rotation to make request look more human-like
 const userAgents = [
@@ -45,58 +54,110 @@ const fetchData = async (parkingId: string): Promise<any> => {
   // Choose a random user agent
   const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
   
-  try {
-    console.log(`Fetching data for parking ${parkingId}...`);
-    const controller = new AbortController();
-    // Increase timeout to 20 seconds
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
-    
-    // Don't add cache-busting parameter - it might be causing issues
-    
-    const response = await fetch(apiUrl, {
-      headers: {
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-        "User-Agent": userAgent,
-        "Referer": "https://lk.parking.mos.ru/parkings",
-        "Origin": "https://lk.parking.mos.ru",
-        "Host": "lk.parking.mos.ru",
-        "sec-ch-ua": `"Not_A Brand";v="8", "Chromium";v="120"`,
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": "\"Windows\"",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin"
-      },
-      cache: "no-store",
-      signal: controller.signal,
-      // Don't include credentials as it might be causing issues
-      mode: "cors"
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (!response.ok) {
-      console.error(`API request failed with status ${response.status}: ${response.statusText}`);
-      throw new Error(`API request failed with status ${response.status}`);
+  // Try direct request first, then fallback to CORS proxy if needed
+  let useFallbackProxy = false;
+  let attempts = 0;
+  const maxAttempts = 2;
+  
+  while (attempts < maxAttempts) {
+    try {
+      attempts++;
+      console.log(`Fetching data for parking ${parkingId} from Moscow API${useFallbackProxy ? ' via proxy' : ''}... (attempt ${attempts}/${maxAttempts})`);
+      
+      // Create AbortController with a longer timeout (30 seconds)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        console.log(`Aborting request for parking ${parkingId} due to timeout`);
+        controller.abort('Request timeout');
+      }, 30000);
+      
+      // Determine URL based on whether we're using the proxy or not
+      const fetchUrl = useFallbackProxy 
+        ? `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`
+        : apiUrl;
+      
+      // Use node-fetch options that help with connection issues
+      const fetchOptions: RequestInit = {
+        headers: {
+          "Accept": "application/json, text/plain, */*",
+          "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+          "User-Agent": userAgent,
+          "Referer": "https://lk.parking.mos.ru/parkings",
+          "Origin": "https://lk.parking.mos.ru",
+          "Host": "lk.parking.mos.ru",
+          "sec-ch-ua": `"Not_A Brand";v="8", "Chromium";v="120"`,
+          "sec-ch-ua-mobile": "?0",
+          "sec-ch-ua-platform": "\"Windows\"",
+          "Sec-Fetch-Dest": "empty",
+          "Sec-Fetch-Mode": "cors",
+          "Sec-Fetch-Site": "same-origin"
+        },
+        cache: "no-store" as RequestCache,
+        signal: controller.signal,
+        mode: "cors" as RequestMode,
+        // This option helps with connection issues in serverless environments
+        keepalive: true
+      };
+      
+      // Make the request with proper error handling
+      const response = await fetch(fetchUrl, fetchOptions);
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.error(`API request failed with status ${response.status}: ${response.statusText}`);
+        
+        // If this was a direct request and failed, try the proxy
+        if (!useFallbackProxy && attempts < maxAttempts) {
+          useFallbackProxy = true;
+          continue;
+        }
+        
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (!data.parking) {
+        console.error("Invalid response format:", data);
+        throw new Error("Invalid response format");
+      }
+      
+      return data;
+    } catch (error: any) {
+      // Check if it's a timeout error
+      if (error.name === 'AbortError' || 
+          (error.cause && error.cause.code === 'UND_ERR_CONNECT_TIMEOUT')) {
+        console.error(`Connection timeout for parking ${parkingId}`);
+        
+        // If this was a direct request and failed, try the proxy
+        if (!useFallbackProxy && attempts < maxAttempts) {
+          useFallbackProxy = true;
+          continue;
+        }
+        
+        throw new Error(`Connection timeout for parking ${parkingId}`);
+      }
+      
+      console.error(`Error fetching parking data for ID ${parkingId}: ${error.message}`);
+      if (error.cause) {
+        console.error(`Cause: ${JSON.stringify(error.cause)}`);
+      }
+      
+      // If this was a direct request and failed, try the proxy
+      if (!useFallbackProxy && attempts < maxAttempts) {
+        useFallbackProxy = true;
+        continue;
+      }
+      
+      throw error;
     }
-    
-    const data = await response.json();
-    
-    if (!data.parking) {
-      console.error("Invalid response format:", data);
-      throw new Error("Invalid response format");
-    }
-    
-    return data;
-  } catch (error: any) {
-    console.error(`Error fetching parking data for ID ${parkingId}: ${error.message}`);
-    throw error;
   }
+  
+  throw new Error(`Failed to fetch data for parking ${parkingId} after ${maxAttempts} attempts`);
 };
 
 // Process the API response data
-const processApiData = (data: any): Record<string, number | boolean> => {
+const processApiData = (data: any): Record<string, number | boolean | string> => {
   const parkingData = data.parking;
   const spaces = parkingData.congestion?.spaces || {};
   const overall = spaces.overall || {};
@@ -108,7 +169,9 @@ const processApiData = (data: any): Record<string, number | boolean> => {
     handicappedTotal: handicapped.total || 0,
     handicappedFree: handicapped.free || 0,
     dataAvailable: true,
-    lastUpdated: Math.floor(Date.now() / 1000)
+    lastUpdated: Math.floor(Date.now() / 1000),
+    // Add source information for debugging
+    source: "moscow_api"
   };
 };
 

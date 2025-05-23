@@ -84,7 +84,8 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
           if (retryCount === maxRetries) {
             console.log("Trying direct proxy mode...");
             try {
-              const response = await fetch(`/api/parkings/${parking.id}/live?direct=true`);
+              // Try our new direct proxy endpoint
+              const response = await fetch(`/api/parkings/direct/${parking.id}`);
               if (response.ok) {
                 const directData = await response.json();
                 if (directData?.parking?.congestion?.spaces) {
@@ -103,6 +104,8 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                   setIsLoadingData(false);
                   return;
                 }
+              } else {
+                console.error("Direct proxy mode failed:", await response.text());
               }
             } catch (directError) {
               console.error("Direct proxy mode also failed:", directError);

@@ -42,67 +42,100 @@ export async function getParkingRealTimeData(parkingId: string): Promise<{
   dataAvailable?: boolean;
   isStale?: boolean;
 } | null> {
-  try {
-    console.log(`Requesting data for parking ${parkingId}...`);
-    
-    // Add cache-busting parameter to prevent browser caching
-    const cacheBuster = `?_t=${Date.now()}`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort('Request timeout'), 15000);
-    
-    const response = await fetch(`/api/parkings/${parkingId}/live${cacheBuster}`, {
-      signal: controller.signal,
-      cache: 'no-store',
-      headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
+  // Try multiple approaches to get the data
+  const approaches = [
+    { url: `/api/parkings/${parkingId}/live`, name: "Standard API" },
+    { url: `/api/parkings/direct/${parkingId}`, name: "Direct Proxy" }
+  ];
+  
+  let lastError: any = null;
+  
+  // Try each approach in sequence
+  for (const approach of approaches) {
+    try {
+      console.log(`Requesting data for parking ${parkingId} using ${approach.name}...`);
+      
+      // Add cache-busting parameter to prevent browser caching
+      const cacheBuster = `?_t=${Date.now()}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort('Request timeout'), 15000);
+      
+      const response = await fetch(`${approach.url}${cacheBuster}`, {
+        signal: controller.signal,
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+        }
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.error(`${approach.name} failed: ${response.status} ${response.statusText}`);
+        continue; // Try next approach
       }
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (!response.ok) {
-      console.error(`Failed to fetch parking data: ${response.status} ${response.statusText}`);
-      return null;
-    }
-    
-    const data = await response.json();
-    
-    // Check for error message in response
-    if (data.error) {
-      console.error(`API returned error: ${data.error}`);
-      return null;
-    }
-    
-    // Проверяем наличие флага dataAvailable
-    if ('dataAvailable' in data && data.dataAvailable === false) {
-      console.log(`No data available for parking ${parkingId}`);
+      
+      const data = await response.json();
+      
+      // Check for error message in response
+      if (data.error) {
+        console.error(`${approach.name} returned error: ${data.error}`);
+        continue; // Try next approach
+      }
+      
+      // Handle direct proxy response format
+      if (approach.name === "Direct Proxy" && data.parking?.congestion?.spaces) {
+        const spaces = data.parking.congestion.spaces;
+        const overall = spaces.overall || {};
+        const handicapped = spaces.handicapped || {};
+        
+        console.log(`Successfully loaded data for parking ${parkingId} using ${approach.name}`);
+        return {
+          totalSpaces: overall.total || 0,
+          freeSpaces: overall.free || 0,
+          handicappedTotal: handicapped.total || 0,
+          handicappedFree: handicapped.free || 0,
+          dataAvailable: true
+        };
+      }
+      
+      // Handle standard API response format
+      if ('dataAvailable' in data && data.dataAvailable === false) {
+        console.log(`No data available for parking ${parkingId} using ${approach.name}`);
+        return {
+          totalSpaces: 0,
+          freeSpaces: 0,
+          handicappedTotal: 0,
+          handicappedFree: 0,
+          dataAvailable: false
+        };
+      }
+      
+      console.log(`Successfully loaded data for parking ${parkingId} using ${approach.name}`);
       return {
-        totalSpaces: 0,
-        freeSpaces: 0,
-        handicappedTotal: 0,
-        handicappedFree: 0,
-        dataAvailable: false
+        totalSpaces: data.totalSpaces || 0,
+        freeSpaces: data.freeSpaces || 0,
+        handicappedTotal: data.handicappedTotal || 0,
+        handicappedFree: data.handicappedFree || 0,
+        isStale: data.isStale || false
       };
+    } catch (error: any) {
+      // Store the error for reporting if all approaches fail
+      lastError = error;
+      
+      // Check if it's an abort error
+      if (error.name === 'AbortError') {
+        console.error(`${approach.name} request for parking ${parkingId} timed out`);
+      } else {
+        console.error(`Error fetching data using ${approach.name} for parking ${parkingId}:`, error);
+      }
     }
-    
-    console.log(`Successfully loaded data for parking ${parkingId}`);
-    return {
-      totalSpaces: data.totalSpaces || 0,
-      freeSpaces: data.freeSpaces || 0,
-      handicappedTotal: data.handicappedTotal || 0,
-      handicappedFree: data.handicappedFree || 0,
-      isStale: data.isStale || false
-    };
-  } catch (error: any) {
-    // Check if it's an abort error
-    if (error.name === 'AbortError') {
-      console.error(`Request for parking ${parkingId} timed out`);
-    } else {
-      console.error(`Error fetching real-time data for parking ${parkingId}:`, error);
-    }
-    return null;
   }
+  
+  // All approaches failed
+  console.error(`All approaches failed for parking ${parkingId}. Last error:`, lastError);
+  return null;
 }
 
 /**
