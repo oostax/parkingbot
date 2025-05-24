@@ -276,8 +276,8 @@ export default function Home() {
                 style={{ transform: activeTab === "list" ? "scaleX(1)" : "scaleX(0)" }} />
             </TabsTrigger>
             <TabsTrigger value="favorites" disabled={!session} className="relative overflow-hidden transition-all text-xs md:text-sm py-1 px-2 md:py-2 md:px-3">
-              <span className="hidden xs:inline">Избранное</span>
-              <span className="xs:hidden">⭐</span>
+              <span className="hidden xs:inline">Избранные</span>
+              <span className="xs:hidden">Избранные</span>
               <span className="absolute bottom-0 left-0 w-full h-0.5 bg-primary transform origin-left transition-transform duration-300 ease-out" 
                 style={{ transform: activeTab === "favorites" ? "scaleX(1)" : "scaleX(0)" }} />
             </TabsTrigger>
@@ -384,7 +384,7 @@ export default function Home() {
             )}
           </TabsContent>
           
-          <TabsContent value="favorites" className="flex-1 animate-in fade-in slide-in-from-right duration-300 ease-in-out">
+          <TabsContent value="favorites" className="flex-1 animate-in fade-in slide-in-from-right duration-300 ease-in-out pt-2">
             <FavoritesList 
               onParkingSelect={handleParkingSelect}
               onToggleFavorite={toggleFavorite}

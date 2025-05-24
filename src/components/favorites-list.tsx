@@ -87,7 +87,7 @@ export default function FavoritesList({ onParkingSelect, onToggleFavorite }: Fav
   }
 
   return (
-    <div className="pt-4 px-4">
+    <div className="px-4">
       <h2 className="text-xl font-bold mb-4">
         Избранные парковки 
         <span className="text-sm font-normal ml-2 text-gray-500">

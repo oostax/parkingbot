@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { User, LogOut, Star } from "lucide-react";
+import { User, LogOut, Star, ArrowLeft } from "lucide-react";
 
 export default function ProfilePage() {
   const { data: session, status } = useSession();
@@ -69,7 +69,7 @@ export default function ProfilePage() {
         <div className="container flex justify-between items-center">
           <h1 className="text-base md:text-xl font-bold">Мой профиль</h1>
           <Button variant="outline" size="icon" onClick={() => router.push("/")}>
-            <LogOut className="h-4 w-4" />
+            <ArrowLeft className="h-4 w-4" />
           </Button>
         </div>
       </header>

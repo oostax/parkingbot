@@ -41,8 +41,31 @@ interface MapComponentProps {
   onParkingSelect: (parking: ParkingInfo) => void;
 }
 
+// Интерфейс для данных о загруженности парковок
+interface OccupancyData {
+  [parkingId: string]: { occupancy: number; freeSpaces: number };
+}
+
 export default function MapComponent({ parkings, selectedParking, onParkingSelect }: MapComponentProps) {
   const [isMounted, setIsMounted] = useState(false);
+  const [occupancyData, setOccupancyData] = useState<OccupancyData>({});
+
+  // Загрузка данных о загруженности парковок
+  useEffect(() => {
+    async function fetchOccupancyData() {
+      try {
+        const response = await fetch('/api/parkings/stats');
+        if (response.ok) {
+          const data = await response.json();
+          setOccupancyData(data.parkings || {});
+        }
+      } catch (error) {
+        console.error("Error fetching parking occupancy data:", error);
+      }
+    }
+
+    fetchOccupancyData();
+  }, []);
 
   // Only render the map on the client side and fix Leaflet icon issue
   useEffect(() => {
@@ -65,7 +88,30 @@ export default function MapComponent({ parkings, selectedParking, onParkingSelec
     const isSelected = selectedParking?.id === parking.id;
     const isFavorite = parking.isFavorite;
     
-    const color = isSelected ? '#F59E0B' : isFavorite ? '#EC4899' : '#3B82F6';
+    // Определяем цвет маркера на основе загруженности
+    let color = '#3B82F6'; // Синий по умолчанию
+    
+    // Если есть данные о загруженности для этой парковки
+    if (occupancyData[parking.id]) {
+      const occupancy = occupancyData[parking.id].occupancy;
+      
+      // Зеленый: свободно (менее 70% занято)
+      if (occupancy < 0.7) {
+        color = '#22C55E'; // Зеленый
+      } 
+      // Желтый: средне заполнено (70-85% занято)
+      else if (occupancy < 0.85) {
+        color = '#F59E0B'; // Желтый
+      } 
+      // Красный: почти заполнено или заполнено (более 85% занято)
+      else {
+        color = '#EF4444'; // Красный
+      }
+    }
+    
+    // Если парковка выделена или в избранном, приоритет имеет этот статус
+    if (isSelected) color = '#8B5CF6'; // Фиолетовый для выбранной
+    else if (isFavorite) color = '#EC4899'; // Розовый для избранной
     
     return L.divIcon({
       className: 'custom-marker',
@@ -167,6 +213,11 @@ export default function MapComponent({ parkings, selectedParking, onParkingSelec
           );
         })}
       </MapContainer>
+      
+      {/* Лейбл разработчика */}
+      <div className="absolute bottom-2 right-2 bg-white/80 px-2 py-1 rounded-md text-xs text-gray-600 shadow-sm z-50">
+        Разработано <a href="https://t.me/new_metas" target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:underline">NewMeta</a>
+      </div>
     </div>
   );
 }
