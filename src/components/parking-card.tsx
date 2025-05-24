@@ -326,11 +326,11 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                 <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
               </div>
             ) : forecasts && forecasts.length > 0 ? (
-              <div className="h-52 pb-8 overflow-x-hidden">
+              <div className="h-52 pb-1 overflow-x-auto">
                 <div className="mb-2 text-sm text-center text-muted-foreground">Прогноз загруженности по часам</div>
                 
-                {/* Упрощенная версия графика для мобильных устройств */}
-                <div className="relative h-28 mt-4 w-full">
+                {/* График прогноза с тонкими полосками для всех 24 часов */}
+                <div className="relative h-32 mt-3 w-full min-w-[500px]">
                   {/* Горизонтальные линии сетки */}
                   <div className="absolute w-full h-full flex flex-col justify-between">
                     <div className="border-t border-dashed border-gray-300 w-full"></div>
@@ -338,54 +338,8 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                     <div className="border-t border-dashed border-gray-300 w-full"></div>
                   </div>
                   
-                  {/* График в виде баров */}
-                  <div className="absolute w-full h-full flex">
-                    {/* Показываем только 8 баров для наглядности */}
-                    {Array.from({ length: 8 }).map((_, barIndex) => {
-                      const index = barIndex * 3; // Берем каждую третью запись
-                      const forecast = forecasts[index];
-                      
-                      if (!forecast || typeof forecast.expected_occupancy !== 'number') return null;
-                      
-                      const forecastDate = new Date(forecast.timestamp);
-                      const hour = forecastDate.getHours();
-                      const occupancyPercent = Math.min(100, Math.max(0, forecast.expected_occupancy * 100));
-                      const freePercent = 100 - occupancyPercent;
-                      
-                      // Увеличиваем значение высоты для лучшей видимости
-                      const heightPercent = Math.min(95, Math.max(15, freePercent)); 
-                      
-                      // Определяем цвет на основе свободных мест
-                      let barColor = "bg-red-500"; 
-                      if (freePercent >= 40) barColor = "bg-green-500";
-                      else if (freePercent >= 20) barColor = "bg-amber-500";
-                      
-                      // Текущий час получает выделение
-                      const currentHour = new Date().getHours();
-                      const isCurrentHour = hour === currentHour || 
-                          (currentHour >= hour && currentHour < hour + 3);
-                      
-                      return (
-                        <div key={index} className="flex-1 flex flex-col items-center">
-                          {/* Столбец высота = процент свободных мест */}
-                          <div className="w-full h-full flex flex-col justify-end">
-                            <div 
-                              className={`${barColor} w-4/5 mx-auto rounded-t ${isCurrentHour ? 'border-2 border-blue-500' : ''}`} 
-                              style={{ height: `${heightPercent}%` }}
-                            ></div>
-                          </div>
-                          
-                          {/* Метка часа */}
-                          <div className="text-[10px] text-gray-600 absolute -bottom-6">
-                            {hour}:00
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  
-                  {/* Легенда */}
-                  <div className="absolute -bottom-8 w-full flex justify-center text-xs text-gray-500">
+                  {/* Легенда в верхней части над графиком */}
+                  <div className="absolute -top-6 w-full flex justify-center text-xs text-gray-500">
                     <div className="flex items-center mr-3">
                       <div className="w-3 h-3 bg-green-500 mr-1"></div>
                       <span>Свободно</span>
@@ -398,6 +352,60 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                       <div className="w-3 h-3 bg-red-500 mr-1"></div>
                       <span>Занято</span>
                     </div>
+                  </div>
+                  
+                  {/* График в виде баров */}
+                  <div className="absolute w-full h-full flex">
+                    {/* Показываем все 24 часа */}
+                    {forecasts.slice(0, 24).map((forecast, index) => {
+                      if (!forecast || typeof forecast.expected_occupancy !== 'number') return null;
+                      
+                      const forecastDate = new Date(forecast.timestamp);
+                      const hour = forecastDate.getHours();
+                      const occupancyPercent = Math.min(100, Math.max(0, forecast.expected_occupancy * 100));
+                      const freePercent = 100 - occupancyPercent;
+                      
+                      // Оценка количества свободных мест
+                      // Если realTimeData доступен, используем его для расчёта
+                      let estimatedFreeSpaces = 0;
+                      if (realTimeData && realTimeData.totalSpaces) {
+                        estimatedFreeSpaces = Math.round((freePercent / 100) * realTimeData.totalSpaces);
+                      }
+                      
+                      // Увеличиваем значение высоты для лучшей видимости
+                      const heightPercent = Math.min(95, Math.max(15, freePercent)); 
+                      
+                      // Определяем цвет на основе свободных мест
+                      let barColor = "bg-red-500"; 
+                      if (freePercent >= 40) barColor = "bg-green-500";
+                      else if (freePercent >= 20) barColor = "bg-amber-500";
+                      
+                      // Текущий час получает выделение
+                      const currentHour = new Date().getHours();
+                      const isCurrentHour = hour === currentHour;
+                      
+                      return (
+                        <div key={index} className="flex-1 flex flex-col items-center">
+                          {/* Количество свободных мест сверху */}
+                          <div className="absolute -top-5 text-[9px] font-semibold">
+                            {estimatedFreeSpaces > 0 ? estimatedFreeSpaces : "—"}
+                          </div>
+                          
+                          {/* Столбец высота = процент свободных мест */}
+                          <div className="w-full h-full flex flex-col justify-end">
+                            <div 
+                              className={`${barColor} w-[80%] mx-auto rounded-t ${isCurrentHour ? 'border-2 border-blue-500' : ''}`} 
+                              style={{ height: `${heightPercent}%` }}
+                            ></div>
+                          </div>
+                          
+                          {/* Метка часа */}
+                          <div className={`text-[8px] ${isCurrentHour ? 'font-bold' : ''} text-gray-600 absolute -bottom-4`}>
+                            {hour}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
