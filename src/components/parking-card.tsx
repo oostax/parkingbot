@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ParkingInfo, ParkingStats } from "@/types/parking";
+import { ParkingInfo, ParkingStats, Forecast } from "@/types/parking";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Star, MapPin, X, Activity, Heart, HeartOff, Car, Accessibility } from "lucide-react";
 import { getParkingRealTimeData } from "@/lib/parking-utils";
@@ -29,6 +29,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
     handicappedFree: number;
   } | null>(null);
   const [stats, setStats] = useState<ParkingStats[]>([]);
+  const [forecasts, setForecasts] = useState<Forecast[]>([]);
   
   useEffect(() => {
     let isMounted = true;
@@ -87,6 +88,24 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
       }
     };
     
+    // Функция для загрузки прогнозов
+    const fetchForecasts = async () => {
+      try {
+        // Добавляем параметр noCache и текущее время для предотвращения кэширования
+        const timestamp = new Date().getTime();
+        const response = await fetch(`/api/parkings/${parking.id}/forecast?noCache=true&t=${timestamp}`);
+        if (response.ok && isMounted) {
+          const data = await response.json();
+          if (data.forecasts && data.forecasts.length > 0) {
+            setForecasts(data.forecasts);
+            console.log("Loaded forecasts:", data.forecasts.length);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching parking forecasts:", error);
+      }
+    };
+    
     // Also fetch stats for historical data
     const fetchStats = async () => {
       try {
@@ -115,6 +134,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
     
     fetchRealTimeData();
     fetchStats();
+    fetchForecasts(); // Добавляем загрузку прогнозов
     
     return () => {
       isMounted = false;
@@ -301,7 +321,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
               </div>
-            ) : stats && stats.length > 0 ? (
+            ) : forecasts && forecasts.length > 0 ? (
               <div className="h-44 pb-2 overflow-x-hidden">
                 <div className="mb-2 text-sm text-center text-muted-foreground">Прогноз загруженности по часам</div>
                 <div className="relative h-32 w-full">
@@ -314,8 +334,13 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                   
                   {/* Bar chart */}
                   <div className="absolute w-full h-full flex items-end">
-                    {stats.map((hourData, index) => {
-                      const occupancyPercent = hourData.avg_occupancy * 100;
+                    {forecasts.map((forecast, index) => {
+                      // Take only every other forecast to avoid overcrowding (12 bars instead of 24)
+                      if (index % 2 !== 0 && index < forecasts.length - 1) return null;
+                      
+                      const forecastDate = new Date(forecast.timestamp);
+                      const hour = forecastDate.getHours();
+                      const occupancyPercent = forecast.expected_occupancy * 100;
                       const freePercent = 100 - occupancyPercent;
                       
                       // Calculate bar height (0-100%)
@@ -328,7 +353,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                       
                       // Current hour gets highlighted
                       const currentHour = new Date().getHours();
-                      const isCurrentHour = index === currentHour;
+                      const isCurrentHour = hour === currentHour;
                       
                       return (
                         <div 
@@ -344,9 +369,9 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                               <div className="h-1 w-4 bg-blue-500 mx-auto"></div>
                             </div>
                           )}
-                          {(index % 6 === 0) && (
+                          {(index % 4 === 0) && (
                             <div className="absolute -bottom-5 text-[8px] sm:text-xs text-gray-500">
-                              {index}:00
+                              {hour}:00
                             </div>
                           )}
                         </div>
@@ -361,6 +386,36 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                 <p className="text-sm text-muted-foreground mt-2">
                   Данные о прогнозе недоступны
                 </p>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  className="mt-2" 
+                  onClick={() => {
+                    setIsLoadingData(true);
+                    setTimeout(() => {
+                      // Добавляем параметр noCache и текущее время для предотвращения кэширования
+                      const timestamp = new Date().getTime();
+                      fetch(`/api/parkings/${parking.id}/forecast?noCache=true&t=${timestamp}`)
+                        .then(response => {
+                          if (!response.ok) {
+                            throw new Error(`Failed to fetch parking forecasts: ${response.statusText}`);
+                          }
+                          return response.json();
+                        })
+                        .then(data => {
+                          if (data.forecasts && data.forecasts.length > 0) {
+                            setForecasts(data.forecasts);
+                          }
+                        })
+                        .catch(error => {
+                          console.error("Error fetching parking forecasts:", error);
+                        })
+                        .finally(() => setIsLoadingData(false));
+                    }, 300);
+                  }}
+                >
+                  <Loader2 className="h-3 w-3 mr-1" /> Обновить
+                </Button>
               </div>
             )}
           </TabsContent>
