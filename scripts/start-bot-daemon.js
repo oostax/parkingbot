@@ -284,9 +284,18 @@ def generate_forecasts(conn):
         now = datetime.now()
         current_hour = now.hour
         
-        # Получаем все парковки с данными статистики
-        parkings = cursor.execute("SELECT DISTINCT parking_id FROM daily_stats").fetchall()
-        logger.info(f"Генерация прогнозов для {len(parkings)} парковок...")
+        # Получаем все парковки с данными статистики или текущими данными
+        parkings = cursor.execute("""
+            SELECT DISTINCT parking_id FROM (
+                SELECT DISTINCT parking_id FROM daily_stats
+                UNION
+                SELECT DISTINCT parking_id FROM parking_stats
+                WHERE timestamp >= datetime('now', '-2 hours')
+            )
+        """).fetchall()
+        
+        total_parkings = len(parkings)
+        logger.info(f"Генерация прогнозов для {total_parkings} парковок...")
         
         # Удаляем устаревшие прогнозы
         cursor.execute("DELETE FROM forecasts WHERE timestamp < ?", (now,))
@@ -305,6 +314,12 @@ def generate_forecasts(conn):
                 
             _, total_spaces, current_free = recent_data
             
+            # Если есть риск деления на ноль
+            if total_spaces == 0:
+                total_spaces = 1  # Избегаем деления на ноль
+            
+            current_occupancy = 1.0 - (current_free / total_spaces)
+            
             # Получаем статистику по часам для этой парковки
             daily_stats = cursor.execute('''
                 SELECT hour, avg_free_spaces, avg_occupancy 
@@ -313,19 +328,41 @@ def generate_forecasts(conn):
                 ORDER BY hour
             ''', (parking_id,)).fetchall()
             
-            if not daily_stats:
-                continue
-                
             # Конвертируем в словарь для удобства
-            stats_by_hour = {hour: (avg_free, avg_occupancy) for hour, avg_free, avg_occupancy in daily_stats}
+            stats_by_hour = {hour: (avg_free, avg_occupancy) for hour, avg_free, avg_occupancy in daily_stats} if daily_stats else {}
+            
+            # Если нет исторических данных, создаем базовые шаблоны заполненности
+            base_patterns = {}
+            if not stats_by_hour:
+                # Используем базовый шаблон загруженности по часам
+                for hour in range(24):
+                    # Ночью - меньше загруженность (22:00 - 05:59)
+                    if hour >= 22 or hour < 6:
+                        base_occupancy = max(0.2, current_occupancy * 0.6)
+                    # Утренний пик (7:00 - 9:59)
+                    elif 7 <= hour < 10:
+                        base_occupancy = min(0.9, current_occupancy * 1.3)
+                    # Обеденные часы (12:00 - 13:59)
+                    elif 12 <= hour < 14:
+                        base_occupancy = min(0.85, current_occupancy * 1.2)
+                    # Вечерний пик (17:00 - 19:59)
+                    elif 17 <= hour < 20:
+                        base_occupancy = min(0.95, current_occupancy * 1.4)
+                    # Остальное время - примерно как сейчас
+                    else:
+                        base_occupancy = current_occupancy
+                        
+                    free_spaces = int(total_spaces * (1.0 - base_occupancy))
+                    base_patterns[hour] = (free_spaces, base_occupancy)
             
             # Генерируем прогнозы на 24 часа вперед
             for hour_offset in range(1, 25):
                 forecast_time = now + timedelta(hours=hour_offset)
                 forecast_hour = forecast_time.hour
                 
-                # Если есть статистика для этого часа
+                # Определяем прогнозные значения
                 if forecast_hour in stats_by_hour:
+                    # Если есть статистика для этого часа
                     avg_free, avg_occupancy = stats_by_hour[forecast_hour]
                     
                     # Делаем прогноз с учетом текущего состояния
@@ -334,17 +371,33 @@ def generate_forecasts(conn):
                     weight_historic = 1.0 - weight_current
                     
                     # Рассчитываем прогноз
-                    current_occupancy = 1.0 - (current_free / total_spaces) if total_spaces > 0 else 0
                     predicted_occupancy = (current_occupancy * weight_current) + (avg_occupancy * weight_historic)
                     predicted_occupancy = max(0.05, min(0.95, predicted_occupancy))  # Ограничиваем в разумных пределах
                     predicted_free = int(total_spaces * (1.0 - predicted_occupancy))
+                
+                elif forecast_hour in base_patterns:
+                    # Если нет статистики, используем базовые шаблоны с учетом текущего состояния
+                    base_free, base_occupancy = base_patterns[forecast_hour]
                     
-                    # Записываем прогноз
-                    cursor.execute('''
-                        INSERT OR REPLACE INTO forecasts 
-                        (parking_id, timestamp, expected_free_spaces, expected_occupancy)
-                        VALUES (?, ?, ?, ?)
-                    ''', (parking_id, forecast_time, predicted_free, predicted_occupancy))
+                    # Влияние текущего состояния уменьшается с увеличением временного промежутка
+                    weight_current = max(0.05, 1.0 - (hour_offset / 24.0))
+                    weight_pattern = 1.0 - weight_current
+                    
+                    predicted_occupancy = (current_occupancy * weight_current) + (base_occupancy * weight_pattern)
+                    predicted_occupancy = max(0.05, min(0.95, predicted_occupancy))
+                    predicted_free = int(total_spaces * (1.0 - predicted_occupancy))
+                
+                else:
+                    # Этот случай не должен наступать, но на всякий случай
+                    predicted_occupancy = current_occupancy
+                    predicted_free = int(total_spaces * (1.0 - predicted_occupancy))
+                
+                # Записываем прогноз
+                cursor.execute('''
+                    INSERT OR REPLACE INTO forecasts 
+                    (parking_id, timestamp, expected_free_spaces, expected_occupancy)
+                    VALUES (?, ?, ?, ?)
+                ''', (parking_id, forecast_time, predicted_free, predicted_occupancy))
             
         conn.commit()
         logger.info("Прогнозы обновлены успешно")
