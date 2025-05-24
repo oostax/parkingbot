@@ -326,69 +326,78 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                 <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
               </div>
             ) : forecasts && forecasts.length > 0 ? (
-              <div className="h-44 pb-2 overflow-x-hidden">
+              <div className="h-52 pb-8 overflow-x-hidden">
                 <div className="mb-2 text-sm text-center text-muted-foreground">Прогноз загруженности по часам</div>
-                <div className="relative h-32 w-full">
-                  {/* Horizontal grid lines */}
+                
+                {/* Упрощенная версия графика для мобильных устройств */}
+                <div className="relative h-28 mt-4 w-full">
+                  {/* Горизонтальные линии сетки */}
                   <div className="absolute w-full h-full flex flex-col justify-between">
-                    <div className="border-t border-dashed border-gray-200 w-full"></div>
-                    <div className="border-t border-dashed border-gray-200 w-full"></div>
-                    <div className="border-t border-dashed border-gray-200 w-full"></div>
+                    <div className="border-t border-dashed border-gray-300 w-full"></div>
+                    <div className="border-t border-dashed border-gray-300 w-full"></div>
+                    <div className="border-t border-dashed border-gray-300 w-full"></div>
                   </div>
                   
-                  {/* Bar chart */}
-                  <div className="absolute w-full h-full flex items-end">
-                    {forecasts.map((forecast, index) => {
-                      // Берем только 12 точек для отображения (каждый 2-й прогноз)
-                      if (index % 2 !== 0 && index < forecasts.length - 1) return null;
+                  {/* График в виде баров */}
+                  <div className="absolute w-full h-full flex">
+                    {/* Показываем только 8 баров для наглядности */}
+                    {Array.from({ length: 8 }).map((_, barIndex) => {
+                      const index = barIndex * 3; // Берем каждую третью запись
+                      const forecast = forecasts[index];
                       
-                      // Гарантируем, что у нас действительный объект forecast
-                      if (!forecast || typeof forecast.expected_occupancy !== 'number') {
-                        console.log('Invalid forecast data at index', index, forecast);
-                        return null;
-                      }
+                      if (!forecast || typeof forecast.expected_occupancy !== 'number') return null;
                       
                       const forecastDate = new Date(forecast.timestamp);
                       const hour = forecastDate.getHours();
                       const occupancyPercent = Math.min(100, Math.max(0, forecast.expected_occupancy * 100));
                       const freePercent = 100 - occupancyPercent;
                       
-                      // Минимальная высота для видимости
-                      const barHeight = `${Math.max(5, freePercent)}%`;
+                      // Увеличиваем значение высоты для лучшей видимости
+                      const heightPercent = Math.min(95, Math.max(15, freePercent)); 
                       
-                      // Determine color based on free percentage
-                      let barColor = "bg-red-600"; // Более яркий красный
-                      if (freePercent >= 30) barColor = "bg-green-600"; // Более яркий зеленый
-                      else if (freePercent >= 10) barColor = "bg-amber-600"; // Более яркий желтый
+                      // Определяем цвет на основе свободных мест
+                      let barColor = "bg-red-500"; 
+                      if (freePercent >= 40) barColor = "bg-green-500";
+                      else if (freePercent >= 20) barColor = "bg-amber-500";
                       
-                      // Current hour gets highlighted
+                      // Текущий час получает выделение
                       const currentHour = new Date().getHours();
-                      const isCurrentHour = hour === currentHour;
+                      const isCurrentHour = hour === currentHour || 
+                          (currentHour >= hour && currentHour < hour + 3);
                       
                       return (
-                        <div 
-                          key={index}
-                          className="flex-1 flex flex-col justify-end mx-1 min-w-1"
-                          title={`${hour}:00: Свободно ${Math.round(freePercent)}%`}
-                        >
-                          <div 
-                            className={`${barColor} ${isCurrentHour ? 'opacity-100' : 'opacity-80'} w-full rounded-t-sm`}
-                            style={{ height: barHeight }}
-                          ></div>
-                          {isCurrentHour && (
-                            <div className="absolute -bottom-5 w-full">
-                              <div className="h-1 w-4 bg-blue-500 mx-auto"></div>
-                            </div>
-                          )}
-                          {/* Показываем метку часа для каждого 3-го бара или для текущего часа */}
-                          {(index % 3 === 0 || isCurrentHour) && (
-                            <div className="absolute -bottom-5 text-[8px] sm:text-xs text-gray-500 left-0 right-0 text-center">
-                              {hour}:00
-                            </div>
-                          )}
+                        <div key={index} className="flex-1 flex flex-col items-center">
+                          {/* Столбец высота = процент свободных мест */}
+                          <div className="w-full h-full flex flex-col justify-end">
+                            <div 
+                              className={`${barColor} w-4/5 mx-auto rounded-t ${isCurrentHour ? 'border-2 border-blue-500' : ''}`} 
+                              style={{ height: `${heightPercent}%` }}
+                            ></div>
+                          </div>
+                          
+                          {/* Метка часа */}
+                          <div className="text-[10px] text-gray-600 absolute -bottom-6">
+                            {hour}:00
+                          </div>
                         </div>
                       );
                     })}
+                  </div>
+                  
+                  {/* Легенда */}
+                  <div className="absolute -bottom-8 w-full flex justify-center text-xs text-gray-500">
+                    <div className="flex items-center mr-3">
+                      <div className="w-3 h-3 bg-green-500 mr-1"></div>
+                      <span>Свободно</span>
+                    </div>
+                    <div className="flex items-center mr-3">
+                      <div className="w-3 h-3 bg-amber-500 mr-1"></div>
+                      <span>Средне</span>
+                    </div>
+                    <div className="flex items-center">
+                      <div className="w-3 h-3 bg-red-500 mr-1"></div>
+                      <span>Занято</span>
+                    </div>
                   </div>
                 </div>
               </div>
