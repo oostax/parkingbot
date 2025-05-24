@@ -50,22 +50,38 @@ export default function MapComponent({ parkings, selectedParking, onParkingSelec
   const [isMounted, setIsMounted] = useState(false);
   const [occupancyData, setOccupancyData] = useState<OccupancyData>({});
 
-  // Загрузка данных о загруженности парковок
-  useEffect(() => {
-    async function fetchOccupancyData() {
-      try {
-        const response = await fetch('/api/parkings/stats');
-        if (response.ok) {
-          const data = await response.json();
-          setOccupancyData(data.parkings || {});
-        }
-      } catch (error) {
-        console.error("Error fetching parking occupancy data:", error);
+  // Функция для загрузки данных о загруженности парковок
+  const fetchOccupancyData = async (forceRefresh = false) => {
+    try {
+      // Если forceRefresh = true, добавляем параметр noCache
+      const timestamp = new Date().getTime();
+      const url = forceRefresh 
+        ? `/api/parkings/stats?noCache=true&t=${timestamp}` 
+        : '/api/parkings/stats';
+      
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        setOccupancyData(data.parkings || {});
       }
+    } catch (error) {
+      console.error("Error fetching parking occupancy data:", error);
     }
+  };
 
+  // Загружаем данные при первом рендере
+  useEffect(() => {
     fetchOccupancyData();
   }, []);
+
+  // Обработчик клика по парковке с обновлением данных
+  const handleParkingSelect = (parking: ParkingInfo) => {
+    // Вызываем внешний обработчик
+    onParkingSelect(parking);
+    
+    // Обновляем данные о загруженности всех парковок
+    fetchOccupancyData(true);
+  };
 
   // Only render the map on the client side and fix Leaflet icon issue
   useEffect(() => {
@@ -174,7 +190,7 @@ export default function MapComponent({ parkings, selectedParking, onParkingSelec
               position={[parking.lat, longitude]} 
               icon={getMarkerIcon(parking)}
               eventHandlers={{
-                click: () => onParkingSelect(parking),
+                click: () => handleParkingSelect(parking),
               }}
             >
               <Tooltip 
@@ -207,7 +223,7 @@ export default function MapComponent({ parkings, selectedParking, onParkingSelec
                 weight: 2,
               }}
               eventHandlers={{
-                click: () => onParkingSelect(parking),
+                click: () => handleParkingSelect(parking),
               }}
             />
           );

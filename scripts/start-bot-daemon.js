@@ -24,6 +24,13 @@ exec('python3 -c "import requests, sqlite3, asyncio"', (error) => {
 });
 
 function startDaemon() {
+  // Проверяем наличие директории pb и создаем ее при необходимости
+  const pbDir = path.resolve(process.cwd(), 'pb');
+  if (!fs.existsSync(pbDir)) {
+    console.log('Директория pb не найдена, создаем...');
+    fs.mkdirSync(pbDir);
+  }
+
   // Проверяем наличие базы данных SQLite
   const dbPath = path.resolve(process.cwd(), 'pb', 'bot_database.db');
   
@@ -107,6 +114,19 @@ CREATE TABLE IF NOT EXISTS daily_stats (
     sample_count INTEGER NOT NULL,
     last_updated DATETIME NOT NULL,
     UNIQUE(parking_id, hour)
+)
+''')
+
+# Create forecasts table
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS forecasts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    parking_id TEXT NOT NULL,
+    timestamp DATETIME NOT NULL,
+    expected_free_spaces INTEGER NOT NULL,
+    expected_occupancy REAL NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(parking_id, timestamp)
 )
 ''')
 
@@ -257,6 +277,80 @@ def update_daily_stats(conn):
     except Exception as e:
         logger.error(f"Ошибка обновления дневной статистики: {e}")
 
+# Генерация прогнозов на основе статистики
+def generate_forecasts(conn):
+    try:
+        cursor = conn.cursor()
+        now = datetime.now()
+        current_hour = now.hour
+        
+        # Получаем все парковки с данными статистики
+        parkings = cursor.execute("SELECT DISTINCT parking_id FROM daily_stats").fetchall()
+        logger.info(f"Генерация прогнозов для {len(parkings)} парковок...")
+        
+        # Удаляем устаревшие прогнозы
+        cursor.execute("DELETE FROM forecasts WHERE timestamp < ?", (now,))
+        
+        for (parking_id,) in parkings:
+            # Получаем последние данные о парковке
+            recent_data = cursor.execute('''
+                SELECT parking_id, total_spaces, free_spaces 
+                FROM parking_stats 
+                WHERE parking_id = ? 
+                ORDER BY timestamp DESC LIMIT 1
+            ''', (parking_id,)).fetchone()
+            
+            if not recent_data:
+                continue
+                
+            _, total_spaces, current_free = recent_data
+            
+            # Получаем статистику по часам для этой парковки
+            daily_stats = cursor.execute('''
+                SELECT hour, avg_free_spaces, avg_occupancy 
+                FROM daily_stats 
+                WHERE parking_id = ? 
+                ORDER BY hour
+            ''', (parking_id,)).fetchall()
+            
+            if not daily_stats:
+                continue
+                
+            # Конвертируем в словарь для удобства
+            stats_by_hour = {hour: (avg_free, avg_occupancy) for hour, avg_free, avg_occupancy in daily_stats}
+            
+            # Генерируем прогнозы на 24 часа вперед
+            for hour_offset in range(1, 25):
+                forecast_time = now + timedelta(hours=hour_offset)
+                forecast_hour = forecast_time.hour
+                
+                # Если есть статистика для этого часа
+                if forecast_hour in stats_by_hour:
+                    avg_free, avg_occupancy = stats_by_hour[forecast_hour]
+                    
+                    # Делаем прогноз с учетом текущего состояния
+                    # Текущее состояние влияет меньше с увеличением временного промежутка
+                    weight_current = max(0.05, 1.0 - (hour_offset / 24.0))
+                    weight_historic = 1.0 - weight_current
+                    
+                    # Рассчитываем прогноз
+                    current_occupancy = 1.0 - (current_free / total_spaces) if total_spaces > 0 else 0
+                    predicted_occupancy = (current_occupancy * weight_current) + (avg_occupancy * weight_historic)
+                    predicted_occupancy = max(0.05, min(0.95, predicted_occupancy))  # Ограничиваем в разумных пределах
+                    predicted_free = int(total_spaces * (1.0 - predicted_occupancy))
+                    
+                    # Записываем прогноз
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO forecasts 
+                        (parking_id, timestamp, expected_free_spaces, expected_occupancy)
+                        VALUES (?, ?, ?, ?)
+                    ''', (parking_id, forecast_time, predicted_free, predicted_occupancy))
+            
+        conn.commit()
+        logger.info("Прогнозы обновлены успешно")
+    except Exception as e:
+        logger.error(f"Ошибка генерации прогнозов: {e}")
+
 # Основная функция сбора данных
 async def collect_parking_data():
     conn = sqlite3.connect(db_path)
@@ -297,6 +391,9 @@ async def collect_parking_data():
                             logger.info(f"Обновлены данные для парковки {parking_id}: {free}/{total}")
                 except Exception as e:
                     logger.error(f"Ошибка сбора данных для парковки {parking_id}: {e}")
+            
+            # Генерируем прогнозы после сбора данных       
+            generate_forecasts(conn)
                     
             # Обновляем статистику каждый день в полночь
             current_hour = datetime.now().hour

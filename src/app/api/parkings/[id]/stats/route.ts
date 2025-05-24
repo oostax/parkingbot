@@ -1,11 +1,87 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ParkingStats } from "@/types/parking";
+import { query, checkConnection } from "@/lib/sqlite/db";
 
 // Cache responses for 6 hours
 const CACHE_TIME = 21600; // seconds (6 hours)
 const cache = new Map<string, { data: any; timestamp: number }>();
 
-function generateMockStats(parkingId: string): ParkingStats[] {
+interface DailyStats {
+  parking_id: string;
+  hour: number;
+  avg_free_spaces: number;
+  avg_occupancy: number;
+}
+
+export async function GET(
+  request: NextRequest,
+  context: { params: { id: string } }
+) {
+  try {
+    // Get the id and await it according to Next.js requirement
+    const params = await context.params;
+    const parkingId = params.id;
+    
+    // Проверяем наличие параметра noCache в запросе
+    const url = new URL(request.url);
+    const noCache = url.searchParams.has('noCache');
+    
+    // Check cache first, если не передан параметр noCache
+    const now = Math.floor(Date.now() / 1000);
+    const cachedResponse = cache.get(parkingId);
+    if (!noCache && cachedResponse && now - cachedResponse.timestamp < CACHE_TIME) {
+      return NextResponse.json(cachedResponse.data);
+    }
+
+    // Проверяем подключение к SQLite
+    const isConnected = await checkConnection();
+    if (!isConnected) {
+      console.error("SQLite connection failed");
+      return generateMockResponse(parkingId, now);
+    }
+    
+    // Получаем данные из SQLite
+    const stats: DailyStats[] = await query<DailyStats>(
+      `SELECT 
+        parking_id, 
+        hour, 
+        avg_free_spaces, 
+        avg_occupancy 
+       FROM daily_stats 
+       WHERE parking_id = ? 
+       ORDER BY hour`,
+      [parkingId]
+    );
+    
+    // Если данных нет, используем мок-данные
+    if (!stats || stats.length === 0) {
+      return generateMockResponse(parkingId, now);
+    }
+    
+    // Формируем данные в нужном формате
+    const formattedStats: ParkingStats[] = stats.map(stat => ({
+      hour: stat.hour,
+      avg_free_spaces: stat.avg_free_spaces,
+      avg_occupancy: stat.avg_occupancy
+    }));
+    
+    const result = { stats: formattedStats };
+    
+    // Update cache
+    cache.set(parkingId, { data: result, timestamp: now });
+    
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error(`Error fetching parking stats from SQLite: ${error}`);
+    return NextResponse.json(
+      { error: "Failed to fetch parking statistics" },
+      { status: 500 }
+    );
+  }
+}
+
+// Функция генерации мок-данных как запасной вариант
+function generateMockResponse(parkingId: string, now: number) {
   // Generate statistics based on parking ID to ensure consistent results
   const parkingIdNumber = parseInt(parkingId, 10) || 0;
   const stats: ParkingStats[] = [];
@@ -50,40 +126,10 @@ function generateMockStats(parkingId: string): ParkingStats[] {
     });
   }
   
-  return stats;
-}
-
-export async function GET(
-  request: NextRequest,
-  context: { params: { id: string } }
-) {
-  try {
-    // Get the id and await it according to Next.js requirement
-    const params = await context.params;
-    const parkingId = params.id;
-    
-    // Check cache first
-    const now = Math.floor(Date.now() / 1000);
-    const cachedResponse = cache.get(parkingId);
-    if (cachedResponse && now - cachedResponse.timestamp < CACHE_TIME) {
-      return NextResponse.json(cachedResponse.data);
-    }
-    
-    // In a real app, this would fetch from a database
-    // For now, we'll generate mock statistics
-    const stats = generateMockStats(parkingId);
-    
-    const result = { stats };
-    
-    // Update cache
-    cache.set(parkingId, { data: result, timestamp: now });
-    
-    return NextResponse.json(result);
-  } catch (error) {
-    console.error(`Error fetching parking stats: ${error}`);
-    return NextResponse.json(
-      { error: "Failed to fetch parking statistics" },
-      { status: 500 }
-    );
-  }
+  const result = { stats };
+  
+  // Update cache
+  cache.set(parkingId, { data: result, timestamp: now });
+  
+  return NextResponse.json(result);
 } 

@@ -118,9 +118,67 @@ export async function GET(
   const params = await context.params;
   const parkingId = params.id;
   
+  // Проверяем наличие параметра noCache в запросе
+  const url = new URL(request.url);
+  const noCache = url.searchParams.has('noCache');
+  
   try {
     const now = Math.floor(Date.now() / 1000);
     const cachedResponse = cache.get(parkingId);
+    
+    // Если передан параметр noCache, пропускаем кэш и делаем свежий запрос
+    if (noCache) {
+      console.log(`Force fresh data request for parking ${parkingId} (noCache parameter)`);
+      
+      if (!inProgressRequests.has(parkingId)) {
+        try {
+          inProgressRequests.add(parkingId);
+          const data = await fetchParkingData(parkingId);
+          const processedData = processApiData(data);
+          
+          // Save to cache
+          cache.set(parkingId, { 
+            data: processedData, 
+            timestamp: now,
+            attempts: 0
+          });
+          
+          console.log(`Successfully fetched fresh data for parking ${parkingId}`);
+          return NextResponse.json(processedData);
+        } catch (error) {
+          // If we have any cached data, return it in case of error
+          if (cachedResponse) {
+            return NextResponse.json({
+              ...cachedResponse.data,
+              isStale: true,
+              dataAvailable: true
+            });
+          }
+          
+          // No cached data at all, return empty data
+          return NextResponse.json({
+            totalSpaces: 0,
+            freeSpaces: 0,
+            handicappedTotal: 0,
+            handicappedFree: 0,
+            dataAvailable: false
+          });
+        } finally {
+          inProgressRequests.delete(parkingId);
+        }
+      } else {
+        // Already fetching this parking ID, return a waiting status
+        console.log(`Request for ${parkingId} already in progress, returning temporary data`);
+        return NextResponse.json({
+          totalSpaces: 0,
+          freeSpaces: 0, 
+          handicappedTotal: 0,
+          handicappedFree: 0,
+          dataAvailable: true,
+          isLoading: true
+        });
+      }
+    }
     
     // STRATEGY 1: Return fresh cache immediately if available
     if (cachedResponse && now - cachedResponse.timestamp < CACHE_TIME) {

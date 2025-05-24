@@ -32,4 +32,10 @@ export interface ParkingStats {
   hour: number;
   avg_free_spaces: number;
   avg_occupancy: number;
+}
+
+export interface Forecast {
+  timestamp: string;
+  expected_occupancy: number;
+  expected_free_spaces: number;
 } 

@@ -38,7 +38,16 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
     const fetchRealTimeData = async () => {
       setIsLoadingData(true);
       try {
-        const data = await getParkingRealTimeData(parking.id);
+        // Добавляем параметр noCache и текущее время для предотвращения кэширования
+        const timestamp = new Date().getTime();
+        const data = await fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`)
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`Failed to fetch parking data: ${response.statusText}`);
+            }
+            return response.json();
+          });
+          
         if (isMounted) {
           if (data) {
             // Проверяем наличие флага dataAvailable
@@ -81,7 +90,9 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
     // Also fetch stats for historical data
     const fetchStats = async () => {
       try {
-        const response = await fetch(`/api/parkings/${parking.id}/stats`);
+        // Добавляем параметр noCache и текущее время для предотвращения кэширования
+        const timestamp = new Date().getTime();
+        const response = await fetch(`/api/parkings/${parking.id}/stats?noCache=true&t=${timestamp}`);
         if (response.ok && isMounted) {
           const data = await response.json();
           
