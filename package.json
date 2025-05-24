@@ -10,7 +10,8 @@
     "init-db": "ts-node --project tsconfig.node.json scripts/init-db.ts",
     "extract-parking-data": "node scripts/extract-parking-data.js",
     "bot": "node scripts/telegram-bot.js",
-    "restart-daemon": "node scripts/restart-daemon.js"
+    "restart-daemon": "node scripts/restart-daemon.js",
+    "optimize-db": "node scripts/optimize-db.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",

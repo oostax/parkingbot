@@ -274,8 +274,31 @@ def update_daily_stats(conn):
         
         conn.commit()
         logger.info(f"Обновлена дневная статистика для {len(parkings)} парковок")
+        
+        # Очистка устаревших данных из parking_stats
+        cleanup_parking_stats(conn)
     except Exception as e:
         logger.error(f"Ошибка обновления дневной статистики: {e}")
+
+# Функция для очистки устаревших данных parking_stats
+def cleanup_parking_stats(conn):
+    try:
+        cursor = conn.cursor()
+        
+        # Определяем период хранения - храним данные за последние 30 дней
+        retention_period = datetime.now() - timedelta(days=30)
+        
+        # Удаление старых записей из parking_stats
+        cursor.execute("DELETE FROM parking_stats WHERE timestamp < ?", (retention_period,))
+        deleted_count = cursor.rowcount
+        
+        conn.commit()
+        
+        if deleted_count > 0:
+            logger.info(f"Очистка parking_stats: удалено {deleted_count} записей старше 30 дней")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при очистке parking_stats: {e}")
 
 # Генерация прогнозов на основе статистики
 def generate_forecasts(conn):
@@ -283,6 +306,9 @@ def generate_forecasts(conn):
         cursor = conn.cursor()
         now = datetime.now()
         current_hour = now.hour
+        
+        # Очистка устаревших прогнозов - удаляем прогнозы из прошлого и старше MAX_FORECAST_DAYS
+        cleanup_forecasts(conn)
         
         # Получаем все парковки с данными статистики или текущими данными
         parkings = cursor.execute("""
@@ -296,9 +322,6 @@ def generate_forecasts(conn):
         
         total_parkings = len(parkings)
         logger.info(f"Генерация прогнозов для {total_parkings} парковок...")
-        
-        # Удаляем устаревшие прогнозы
-        cursor.execute("DELETE FROM forecasts WHERE timestamp < ?", (now,))
         
         for (parking_id,) in parkings:
             # Получаем последние данные о парковке
@@ -404,9 +427,67 @@ def generate_forecasts(conn):
     except Exception as e:
         logger.error(f"Ошибка генерации прогнозов: {e}")
 
+# Функция для очистки устаревших прогнозов и оптимизации базы данных
+def cleanup_forecasts(conn):
+    try:
+        cursor = conn.cursor()
+        now = datetime.now()
+        
+        # 1. Удаление прогнозов из прошлого (которые уже произошли)
+        cursor.execute("DELETE FROM forecasts WHERE timestamp < ?", (now,))
+        past_forecasts_deleted = cursor.rowcount
+        
+        # 2. Ограничение периода прогнозирования - удаляем прогнозы старше 3 дней
+        max_forecast_date = now + timedelta(days=3)
+        cursor.execute("DELETE FROM forecasts WHERE timestamp > ?", (max_forecast_date,))
+        far_future_deleted = cursor.rowcount
+        
+        # 3. Оставляем только ключевые часы для долгосрочных прогнозов (за пределами текущего дня)
+        # Для текущего дня оставляем почасовые прогнозы, для последующих - только по ключевым часам
+        tomorrow = datetime(now.year, now.month, now.day) + timedelta(days=1)
+        
+        # Получаем ID записей для удаления - оставляем только ключевые часы (8, 12, 16, 20) для дней после завтра
+        to_delete = cursor.execute("""
+            SELECT id FROM forecasts 
+            WHERE timestamp >= ? 
+            AND cast(strftime('%H', timestamp) as integer) NOT IN (8, 12, 16, 20)
+            AND date(timestamp) > date(?)
+        """, (tomorrow, tomorrow)).fetchall()
+        
+        # Удаляем избыточные записи если они есть
+        if to_delete:
+            delete_ids = [id[0] for id in to_delete]
+            # Удаляем группами по 500, чтобы избежать слишком длинных запросов
+            for i in range(0, len(delete_ids), 500):
+                batch = delete_ids[i:i+500]
+                placeholders = ','.join('?' for _ in batch)
+                cursor.execute(f"DELETE FROM forecasts WHERE id IN ({placeholders})", batch)
+            
+        non_key_hours_deleted = sum(1 for _ in to_delete)
+        
+        # 4. Дефрагментация и оптимизация базы данных (выполняем раз в день)
+        if now.hour == 3:  # Выполняем оптимизацию в 3 часа ночи
+            cursor.execute("VACUUM")
+            cursor.execute("PRAGMA optimize")
+            logger.info("База данных оптимизирована (VACUUM и OPTIMIZE)")
+        
+        conn.commit()
+        
+        total_deleted = past_forecasts_deleted + far_future_deleted + non_key_hours_deleted
+        if total_deleted > 0:
+            logger.info(f"Очистка прогнозов: удалено {total_deleted} записей " + 
+                       f"(из прошлого: {past_forecasts_deleted}, " + 
+                       f"далекое будущее: {far_future_deleted}, " + 
+                       f"неключевые часы: {non_key_hours_deleted})")
+            
+    except Exception as e:
+        logger.error(f"Ошибка при очистке прогнозов: {e}")
+
 # Основная функция сбора данных
 async def collect_parking_data():
     conn = sqlite3.connect(db_path)
+    # Включаем поддержку внешних ключей для безопасности
+    conn.execute("PRAGMA foreign_keys = ON")
     session = create_session()
     parking_data = load_parking_data()
     
@@ -464,6 +545,51 @@ async def collect_parking_data():
 # Запуск асинхронного сбора данных
 if __name__ == "__main__":
     logger.info("Запуск демона сбора данных парковок...")
+    
+    # Выводим информацию о текущем состоянии базы данных при запуске
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        
+        # Отчет о количестве записей в таблицах
+        cursor.execute("SELECT COUNT(*) FROM parking_stats")
+        parking_stats_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM daily_stats")
+        daily_stats_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM forecasts")
+        forecasts_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM favorites")
+        favorites_count = cursor.fetchone()[0]
+        
+        # Получаем размер файла базы данных
+        db_size_bytes = os.path.getsize(db_path)
+        db_size_mb = db_size_bytes / (1024 * 1024)
+        
+        logger.info(f"Статистика базы данных:")
+        logger.info(f"- Размер файла: {db_size_mb:.2f} МБ")
+        logger.info(f"- Записей parking_stats: {parking_stats_count}")
+        logger.info(f"- Записей daily_stats: {daily_stats_count}")
+        logger.info(f"- Записей forecasts: {forecasts_count}")
+        logger.info(f"- Записей favorites: {favorites_count}")
+        
+        # Выводим последние обновления статистики
+        cursor.execute("""
+            SELECT parking_id, timestamp, free_spaces, total_spaces 
+            FROM parking_stats 
+            ORDER BY timestamp DESC LIMIT 1
+        """)
+        last_parking_update = cursor.fetchone()
+        if last_parking_update:
+            logger.info(f"Последнее обновление данных: {last_parking_update[1]}")
+            
+    except Exception as e:
+        logger.error(f"Ошибка при получении статистики базы данных: {e}")
+    finally:
+        conn.close()
+    
     loop = asyncio.get_event_loop()
     try:
         loop.run_until_complete(collect_parking_data())

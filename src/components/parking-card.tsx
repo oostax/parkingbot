@@ -97,9 +97,13 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
         if (response.ok && isMounted) {
           const data = await response.json();
           if (data.forecasts && data.forecasts.length > 0) {
+            console.log(`Loaded forecasts for ${parking.id}:`, data.forecasts.length, data.forecasts[0]);
             setForecasts(data.forecasts);
-            console.log("Loaded forecasts:", data.forecasts.length);
+          } else {
+            console.log(`No forecasts returned for ${parking.id}`);
           }
+        } else {
+          console.error(`Error response from forecast API: ${response.status}`);
         }
       } catch (error) {
         console.error("Error fetching parking forecasts:", error);
@@ -335,21 +339,27 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                   {/* Bar chart */}
                   <div className="absolute w-full h-full flex items-end">
                     {forecasts.map((forecast, index) => {
-                      // Take only every other forecast to avoid overcrowding (12 bars instead of 24)
+                      // Берем только 12 точек для отображения (каждый 2-й прогноз)
                       if (index % 2 !== 0 && index < forecasts.length - 1) return null;
+                      
+                      // Гарантируем, что у нас действительный объект forecast
+                      if (!forecast || typeof forecast.expected_occupancy !== 'number') {
+                        console.log('Invalid forecast data at index', index, forecast);
+                        return null;
+                      }
                       
                       const forecastDate = new Date(forecast.timestamp);
                       const hour = forecastDate.getHours();
-                      const occupancyPercent = forecast.expected_occupancy * 100;
+                      const occupancyPercent = Math.min(100, Math.max(0, forecast.expected_occupancy * 100));
                       const freePercent = 100 - occupancyPercent;
                       
-                      // Calculate bar height (0-100%)
-                      const barHeight = `${freePercent}%`;
+                      // Минимальная высота для видимости
+                      const barHeight = `${Math.max(5, freePercent)}%`;
                       
                       // Determine color based on free percentage
-                      let barColor = "bg-red-500";
-                      if (freePercent >= 30) barColor = "bg-green-500";
-                      else if (freePercent >= 10) barColor = "bg-amber-500";
+                      let barColor = "bg-red-600"; // Более яркий красный
+                      if (freePercent >= 30) barColor = "bg-green-600"; // Более яркий зеленый
+                      else if (freePercent >= 10) barColor = "bg-amber-600"; // Более яркий желтый
                       
                       // Current hour gets highlighted
                       const currentHour = new Date().getHours();
@@ -358,10 +368,11 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                       return (
                         <div 
                           key={index}
-                          className="flex-1 flex flex-col justify-end mx-0.5 min-w-0"
+                          className="flex-1 flex flex-col justify-end mx-1 min-w-1"
+                          title={`${hour}:00: Свободно ${Math.round(freePercent)}%`}
                         >
                           <div 
-                            className={`${barColor} ${isCurrentHour ? 'opacity-100' : 'opacity-70'} w-full`}
+                            className={`${barColor} ${isCurrentHour ? 'opacity-100' : 'opacity-80'} w-full rounded-t-sm`}
                             style={{ height: barHeight }}
                           ></div>
                           {isCurrentHour && (
@@ -369,8 +380,9 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                               <div className="h-1 w-4 bg-blue-500 mx-auto"></div>
                             </div>
                           )}
-                          {(index % 4 === 0) && (
-                            <div className="absolute -bottom-5 text-[8px] sm:text-xs text-gray-500">
+                          {/* Показываем метку часа для каждого 3-го бара или для текущего часа */}
+                          {(index % 3 === 0 || isCurrentHour) && (
+                            <div className="absolute -bottom-5 text-[8px] sm:text-xs text-gray-500 left-0 right-0 text-center">
                               {hour}:00
                             </div>
                           )}
@@ -393,18 +405,22 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                   onClick={() => {
                     setIsLoadingData(true);
                     setTimeout(() => {
-                      // Добавляем параметр noCache и текущее время для предотвращения кэширования
-                      const timestamp = new Date().getTime();
-                      fetch(`/api/parkings/${parking.id}/forecast?noCache=true&t=${timestamp}`)
+                      // Прямой запрос для отладки
+                      fetch(`/api/parkings/${parking.id}/forecast?noCache=true&t=${Date.now()}`)
                         .then(response => {
+                          console.log("Forecast API status:", response.status);
                           if (!response.ok) {
                             throw new Error(`Failed to fetch parking forecasts: ${response.statusText}`);
                           }
                           return response.json();
                         })
                         .then(data => {
+                          console.log("Raw forecast data:", data);
                           if (data.forecasts && data.forecasts.length > 0) {
+                            console.log(`Setting ${data.forecasts.length} forecasts`);
                             setForecasts(data.forecasts);
+                          } else {
+                            console.warn("No forecasts in response:", data);
                           }
                         })
                         .catch(error => {
