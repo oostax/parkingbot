@@ -330,7 +330,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                 <div className="mb-2 text-sm text-center text-muted-foreground">Прогноз загруженности по часам</div>
                 
                 {/* График прогноза с тонкими полосками для всех 24 часов */}
-                <div className="relative h-32 mt-3 w-full min-w-[500px]">
+                <div className="relative h-32 mt-3 w-full min-w-[720px]">
                   {/* Горизонтальные линии сетки */}
                   <div className="absolute w-full h-full flex flex-col justify-between">
                     <div className="border-t border-dashed border-gray-300 w-full"></div>
@@ -339,12 +339,12 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                   </div>
                   
                   {/* Легенда в верхней части над графиком */}
-                  <div className="absolute -top-6 w-full flex justify-center text-xs text-gray-500">
-                    <div className="flex items-center mr-3">
+                  <div className="absolute -top-6 right-0 flex justify-end text-xs text-gray-500 gap-3">
+                    <div className="flex items-center">
                       <div className="w-3 h-3 bg-green-500 mr-1"></div>
                       <span>Свободно</span>
                     </div>
-                    <div className="flex items-center mr-3">
+                    <div className="flex items-center">
                       <div className="w-3 h-3 bg-amber-500 mr-1"></div>
                       <span>Средне</span>
                     </div>
@@ -356,56 +356,82 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                   
                   {/* График в виде баров */}
                   <div className="absolute w-full h-full flex">
-                    {/* Показываем все 24 часа */}
-                    {forecasts.slice(0, 24).map((forecast, index) => {
-                      if (!forecast || typeof forecast.expected_occupancy !== 'number') return null;
+                    {/* Обработка данных для показа всех 24 часов без дублирования */}
+                    {(() => {
+                      // Группируем прогнозы по часам и берем самый последний для каждого часа
+                      const hourlyForecasts = new Map();
                       
-                      const forecastDate = new Date(forecast.timestamp);
-                      const hour = forecastDate.getHours();
-                      const occupancyPercent = Math.min(100, Math.max(0, forecast.expected_occupancy * 100));
-                      const freePercent = 100 - occupancyPercent;
-                      
-                      // Оценка количества свободных мест
-                      // Если realTimeData доступен, используем его для расчёта
-                      let estimatedFreeSpaces = 0;
-                      if (realTimeData && realTimeData.totalSpaces) {
-                        estimatedFreeSpaces = Math.round((freePercent / 100) * realTimeData.totalSpaces);
+                      // Сначала добавляем все часы с нулевыми данными (0-23)
+                      for (let h = 0; h < 24; h++) {
+                        hourlyForecasts.set(h, {
+                          hour: h,
+                          expected_occupancy: 0.5, // Значение по умолчанию
+                          expected_free_spaces: realTimeData?.totalSpaces ? Math.round(realTimeData.totalSpaces / 2) : 0
+                        });
                       }
                       
-                      // Увеличиваем значение высоты для лучшей видимости
-                      const heightPercent = Math.min(95, Math.max(15, freePercent)); 
+                      // Затем перезаписываем имеющимися данными
+                      forecasts.forEach(forecast => {
+                        if (!forecast || typeof forecast.expected_occupancy !== 'number') return;
+                        
+                        const forecastDate = new Date(forecast.timestamp);
+                        const hour = forecastDate.getHours();
+                        
+                        // Всегда перезаписываем, так как данные сортированы по времени
+                        // и последний прогноз для каждого часа самый актуальный
+                        hourlyForecasts.set(hour, {
+                          hour: hour,
+                          expected_occupancy: forecast.expected_occupancy,
+                          expected_free_spaces: forecast.expected_free_spaces
+                        });
+                      });
                       
-                      // Определяем цвет на основе свободных мест
-                      let barColor = "bg-red-500"; 
-                      if (freePercent >= 40) barColor = "bg-green-500";
-                      else if (freePercent >= 20) barColor = "bg-amber-500";
-                      
-                      // Текущий час получает выделение
-                      const currentHour = new Date().getHours();
-                      const isCurrentHour = hour === currentHour;
-                      
-                      return (
-                        <div key={index} className="flex-1 flex flex-col items-center">
-                          {/* Количество свободных мест сверху */}
-                          <div className="absolute -top-5 text-[9px] font-semibold">
-                            {estimatedFreeSpaces > 0 ? estimatedFreeSpaces : "—"}
-                          </div>
+                      // Превращаем Map в массив и сортируем по часам
+                      return Array.from(hourlyForecasts.values())
+                        .sort((a, b) => a.hour - b.hour)
+                        .map((forecast, index) => {
+                          const hour = forecast.hour;
+                          const occupancyPercent = Math.min(100, Math.max(0, forecast.expected_occupancy * 100));
+                          const freePercent = 100 - occupancyPercent;
                           
-                          {/* Столбец высота = процент свободных мест */}
-                          <div className="w-full h-full flex flex-col justify-end">
-                            <div 
-                              className={`${barColor} w-[80%] mx-auto rounded-t ${isCurrentHour ? 'border-2 border-blue-500' : ''}`} 
-                              style={{ height: `${heightPercent}%` }}
-                            ></div>
-                          </div>
+                          // Используем expected_free_spaces напрямую из прогноза
+                          const estimatedFreeSpaces = forecast.expected_free_spaces || 0;
                           
-                          {/* Метка часа */}
-                          <div className={`text-[8px] ${isCurrentHour ? 'font-bold' : ''} text-gray-600 absolute -bottom-4`}>
-                            {hour}
-                          </div>
-                        </div>
-                      );
-                    })}
+                          // Увеличиваем значение высоты для лучшей видимости
+                          const heightPercent = Math.min(95, Math.max(15, freePercent)); 
+                          
+                          // Определяем цвет на основе свободных мест
+                          let barColor = "bg-red-500"; 
+                          if (freePercent >= 40) barColor = "bg-green-500";
+                          else if (freePercent >= 20) barColor = "bg-amber-500";
+                          
+                          // Текущий час получает выделение
+                          const currentHour = new Date().getHours();
+                          const isCurrentHour = hour === currentHour;
+                          
+                          return (
+                            <div key={index} className="flex-1 flex flex-col items-center">
+                              {/* Количество свободных мест сверху */}
+                              <div className="absolute -top-5 text-[10px] font-semibold">
+                                {estimatedFreeSpaces > 0 ? estimatedFreeSpaces : "—"}
+                              </div>
+                              
+                              {/* Столбец высота = процент свободных мест */}
+                              <div className="w-full h-full flex flex-col justify-end">
+                                <div 
+                                  className={`${barColor} w-[60%] mx-auto rounded-t ${isCurrentHour ? 'border-2 border-blue-500' : ''}`} 
+                                  style={{ height: `${heightPercent}%` }}
+                                ></div>
+                              </div>
+                              
+                              {/* Метка часа */}
+                              <div className={`text-[9px] ${isCurrentHour ? 'font-bold' : ''} text-gray-600 absolute -bottom-4`}>
+                                {hour}:00
+                              </div>
+                            </div>
+                          );
+                        });
+                    })()}
                   </div>
                 </div>
               </div>
