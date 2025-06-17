@@ -24,7 +24,11 @@ function getRankIcon(rank: number) {
   return <span className="font-bold">{rank}</span>;
 }
 
-export default function Leaderboard() {
+interface LeaderboardProps {
+  currentUserId?: string;
+}
+
+export default function Leaderboard({ currentUserId }: LeaderboardProps) {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
@@ -40,7 +44,12 @@ export default function Leaderboard() {
       })
       .then(data => {
         if (data.leaderboard) {
-          setLeaderboard(data.leaderboard);
+          // Если передан currentUserId, обновляем флаг isCurrentUser для соответствующей записи
+          const updatedLeaderboard = data.leaderboard.map((entry: LeaderboardEntry) => ({
+            ...entry,
+            isCurrentUser: currentUserId ? entry.id === currentUserId : entry.isCurrentUser,
+          }));
+          setLeaderboard(updatedLeaderboard);
         }
       })
       .catch(err => {
@@ -52,7 +61,7 @@ export default function Leaderboard() {
         });
       })
       .finally(() => setIsLoading(false));
-  }, [toast]);
+  }, [toast, currentUserId]);
 
   if (isLoading) {
     return (
