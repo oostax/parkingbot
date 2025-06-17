@@ -16,6 +16,11 @@ export default async function handler(
     }
 
     try {
+      // Проверяем, что у пользователя есть id
+      if (!session.user.id) {
+        return res.status(400).json({ error: "Некорректный ID пользователя" });
+      }
+
       // Получаем или создаем пользователя в базе данных
       let user = await prisma.user.findUnique({
         where: {
@@ -25,24 +30,35 @@ export default async function handler(
 
       // Если пользователя нет, создаем нового
       if (!user) {
-        user = await prisma.user.create({
-          data: {
-            id: session.user.id,
-            username: session.user.name?.toLowerCase().replace(/\s+/g, '') || undefined,
-            firstName: session.user.name?.split(' ')[0] || undefined,
-            lastName: session.user.name?.split(' ').slice(1).join(' ') || undefined,
-            email: session.user.email || undefined,
-            image: session.user.image || undefined,
-          },
-        });
+        try {
+          user = await prisma.user.create({
+            data: {
+              id: session.user.id,
+              username: session.user.name?.toLowerCase().replace(/\s+/g, '') || undefined,
+              firstName: session.user.name?.split(' ')[0] || undefined,
+              lastName: session.user.name?.split(' ').slice(1).join(' ') || undefined,
+              email: session.user.email || undefined,
+              image: session.user.image || undefined,
+            },
+          });
+        } catch (error) {
+          console.error("Error creating user:", error);
+          return res.status(500).json({ error: "Ошибка при создании пользователя" });
+        }
       }
 
       // Получаем достижения пользователя
-      const userAchievements = await prisma.achievement.findMany({
-        where: {
-          userId: user.id,
-        },
-      });
+      let userAchievements: { id: string; achievementId: string; earned: boolean; earnedAt?: Date }[] = [];
+      try {
+        userAchievements = await prisma.achievement.findMany({
+          where: {
+            userId: user.id,
+          },
+        });
+      } catch (error) {
+        console.error("Error fetching achievements:", error);
+        // Продолжаем выполнение, это не критическая ошибка
+      }
 
       // Получаем все возможные достижения
       const allAchievements = [
@@ -84,16 +100,40 @@ export default async function handler(
       ];
 
       // Получаем или создаем профиль пользователя
-      let userProfile = await prisma.userProfile.findUnique({
-        where: {
-          userId: user.id,
-        },
-      });
+      let userProfile;
+      try {
+        userProfile = await prisma.userProfile.findUnique({
+          where: {
+            userId: user.id,
+          },
+        });
+      } catch (error) {
+        console.error("Error finding user profile:", error);
+        // Продолжаем выполнение, это не критическая ошибка
+      }
 
       // Если профиля нет, создаем новый с начальными значениями
       if (!userProfile) {
-        userProfile = await prisma.userProfile.create({
-          data: {
+        try {
+          userProfile = await prisma.userProfile.create({
+            data: {
+              userId: user.id,
+              tokenBalance: 0,
+              status: "Regular",
+              totalParksVisited: 0,
+              uniqueParksVisited: 0,
+              consecutiveLoginDays: 1,
+              totalTokensEarned: 0,
+              totalTokensSpent: 0,
+              referralsCount: 0,
+              challengesCompleted: 0,
+            },
+          });
+        } catch (error) {
+          console.error("Error creating user profile:", error);
+          // Продолжаем выполнение, это не критическая ошибка
+          // Используем пустой профиль для расчетов
+          userProfile = {
             userId: user.id,
             tokenBalance: 0,
             status: "Regular",
@@ -104,16 +144,22 @@ export default async function handler(
             totalTokensSpent: 0,
             referralsCount: 0,
             challengesCompleted: 0,
-          },
-        });
+          };
+        }
       }
 
       // Получаем количество посещенных районов
-      const districtsCount = await prisma.userDistrict.count({
-        where: {
-          userId: user.id,
-        },
-      });
+      let districtsCount = 0;
+      try {
+        districtsCount = await prisma.userDistrict.count({
+          where: {
+            userId: user.id,
+          },
+        });
+      } catch (error) {
+        console.error("Error counting districts:", error);
+        // Продолжаем выполнение, это не критическая ошибка
+      }
 
       // Форматируем достижения для ответа
       const formattedAchievements: UserAchievement[] = allAchievements.map((achievement) => {

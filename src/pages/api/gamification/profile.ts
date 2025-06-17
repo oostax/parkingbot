@@ -16,6 +16,11 @@ export default async function handler(
     }
 
     try {
+      // Проверяем, что у пользователя есть id
+      if (!session.user.id) {
+        return res.status(400).json({ error: "Некорректный ID пользователя" });
+      }
+
       // Получаем или создаем пользователя в базе данных
       let user = await prisma.user.findUnique({
         where: {
@@ -25,83 +30,110 @@ export default async function handler(
 
       // Если пользователя нет, создаем нового
       if (!user) {
-        user = await prisma.user.create({
-          data: {
-            id: session.user.id,
-            username: session.user.name?.toLowerCase().replace(/\s+/g, '') || undefined,
-            firstName: session.user.name?.split(' ')[0] || undefined,
-            lastName: session.user.name?.split(' ').slice(1).join(' ') || undefined,
-            email: session.user.email || undefined,
-            image: session.user.image || undefined,
-          },
-        });
+        try {
+          user = await prisma.user.create({
+            data: {
+              id: session.user.id,
+              username: session.user.name?.toLowerCase().replace(/\s+/g, '') || undefined,
+              firstName: session.user.name?.split(' ')[0] || undefined,
+              lastName: session.user.name?.split(' ').slice(1).join(' ') || undefined,
+              email: session.user.email || undefined,
+              image: session.user.image || undefined,
+            },
+          });
+        } catch (error) {
+          console.error("Error creating user:", error);
+          return res.status(500).json({ error: "Ошибка при создании пользователя" });
+        }
       }
 
       // Получаем профиль пользователя из базы данных или создаем новый
-      let userProfile = await prisma.userProfile.findUnique({
-        where: {
-          userId: user.id,
-        },
-      });
+      let userProfile;
+      try {
+        userProfile = await prisma.userProfile.findUnique({
+          where: {
+            userId: user.id,
+          },
+        });
+      } catch (error) {
+        console.error("Error finding user profile:", error);
+        return res.status(500).json({ error: "Ошибка при поиске профиля пользователя" });
+      }
 
       // Если профиля нет, создаем новый с начальными значениями
       if (!userProfile) {
-        userProfile = await prisma.userProfile.create({
-          data: {
-            userId: user.id,
-            tokenBalance: 0,
-            status: "Regular",
-            totalParksVisited: 0,
-            uniqueParksVisited: 0,
-            consecutiveLoginDays: 1,
-            totalTokensEarned: 0,
-            totalTokensSpent: 0,
-            referralsCount: 0,
-            challengesCompleted: 0,
-          },
-        });
+        try {
+          userProfile = await prisma.userProfile.create({
+            data: {
+              userId: user.id,
+              tokenBalance: 0,
+              status: "Regular",
+              totalParksVisited: 0,
+              uniqueParksVisited: 0,
+              consecutiveLoginDays: 1,
+              totalTokensEarned: 0,
+              totalTokensSpent: 0,
+              referralsCount: 0,
+              challengesCompleted: 0,
+            },
+          });
 
-        // Добавляем начальные токены для нового пользователя
-        await prisma.tokenTransaction.create({
-          data: {
-            userId: user.id,
-            amount: 10,
-            type: "WELCOME_BONUS",
-            description: "Приветственный бонус",
-          },
-        });
+          // Добавляем начальные токены для нового пользователя
+          await prisma.tokenTransaction.create({
+            data: {
+              userId: user.id,
+              amount: 10,
+              type: "WELCOME_BONUS",
+              description: "Приветственный бонус",
+            },
+          });
 
-        // Обновляем баланс токенов
-        userProfile = await prisma.userProfile.update({
+          // Обновляем баланс токенов
+          userProfile = await prisma.userProfile.update({
+            where: {
+              userId: user.id,
+            },
+            data: {
+              tokenBalance: 10,
+              totalTokensEarned: 10,
+            },
+          });
+        } catch (error) {
+          console.error("Error creating user profile:", error);
+          return res.status(500).json({ error: "Ошибка при создании профиля пользователя" });
+        }
+      }
+
+      // Обновляем дату последнего входа
+      try {
+        await prisma.userProfile.update({
           where: {
             userId: user.id,
           },
           data: {
-            tokenBalance: 10,
-            totalTokensEarned: 10,
+            lastLoginAt: new Date(),
           },
         });
+      } catch (error) {
+        console.error("Error updating last login date:", error);
+        // Продолжаем выполнение, это не критическая ошибка
       }
 
-      // Обновляем дату последнего входа
-      await prisma.userProfile.update({
-        where: {
-          userId: user.id,
-        },
-        data: {
-          lastLoginAt: new Date(),
-        },
-      });
-
       // Получаем посещенные районы
-      const userDistricts = await prisma.userDistrict.findMany({
-        where: {
-          userId: user.id,
-        },
-        select: {
-          district: true,
-        },
-      });
+      let userDistricts: { district: string }[] = [];
+      try {
+        userDistricts = await prisma.userDistrict.findMany({
+          where: {
+            userId: user.id,
+          },
+          select: {
+            district: true,
+          },
+        });
+      } catch (error) {
+        console.error("Error fetching user districts:", error);
+        // Продолжаем выполнение, это не критическая ошибка
+      }
 
       // Форматируем данные для ответа
       const formattedProfile: UserProfile = {

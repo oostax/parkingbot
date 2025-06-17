@@ -408,9 +408,13 @@ async def collect_parking_data():
                 update_hourly_data(conn)
                 last_update_hour = now_hour
                     
-            # Ждем до следующего обновления (проверка каждую минуту)
-            logger.info("Сбор данных завершен. Ожидание до следующей проверки...")
-            await asyncio.sleep(60)  # Проверка каждую минуту
+            # Ждем до следующего часа
+            logger.info("Сбор данных завершен. Ожидание до следующего часа...")
+            # Вычисляем время до следующего часа
+            now = datetime.now()
+            next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+            seconds_to_wait = (next_hour - now).total_seconds()
+            await asyncio.sleep(seconds_to_wait)  # Ждем до начала следующего часа
                 
         except Exception as e:
             logger.error(f"Общая ошибка в collect_parking_data: {e}")

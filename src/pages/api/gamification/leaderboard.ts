@@ -21,17 +21,21 @@ export default async function handler(
         include: {
           userProfile: true,
         },
-        orderBy: {
+        where: {
           userProfile: {
-            tokenBalance: 'desc',
-          },
+            isNot: null
+          }
         },
         take: 20, // Ограничиваем количество записей для производительности
       });
 
-      // Форматируем данные для таблицы лидеров
-      const leaderboard: LeaderboardEntry[] = usersWithProfiles
+      // Сортируем пользователей по балансу токенов
+      const sortedUsers = [...usersWithProfiles]
         .filter(user => user.userProfile) // Фильтруем пользователей без профиля
+        .sort((a, b) => (b.userProfile?.tokenBalance || 0) - (a.userProfile?.tokenBalance || 0));
+
+      // Форматируем данные для таблицы лидеров
+      const leaderboard: LeaderboardEntry[] = sortedUsers
         .map((user, index) => {
           // Определяем, является ли текущий пользователь текущим пользователем сессии
           const isCurrentUser = user.id === session.user!.id;
