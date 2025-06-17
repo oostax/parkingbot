@@ -207,10 +207,14 @@ import asyncio
 import time
 import os
 import json
+import pytz
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Устанавливаем московский часовой пояс
+moscow_tz = pytz.timezone('Europe/Moscow')
 
 # Путь к базе данных
 db_path = os.path.join(os.path.dirname(__file__), 'bot_database.db')
@@ -270,9 +274,11 @@ def get_parking_info(session, parking_id):
 def record_parking_state(conn, parking_id, free_spaces, total_spaces):
     try:
         cursor = conn.cursor()
+        # Используем московское время
+        moscow_time = datetime.now(moscow_tz)
         cursor.execute(
             "INSERT INTO parking_stats (parking_id, timestamp, free_spaces, total_spaces) VALUES (?, ?, ?, ?)",
-            (parking_id, datetime.now(), free_spaces, total_spaces)
+            (parking_id, moscow_time, free_spaces, total_spaces)
         )
         conn.commit()
         return True
@@ -284,7 +290,7 @@ def record_parking_state(conn, parking_id, free_spaces, total_spaces):
 def update_hourly_data(conn):
     try:
         cursor = conn.cursor()
-        now = datetime.now()
+        now = datetime.now(moscow_tz)
         current_hour = now.hour
         today = now.strftime('%Y-%m-%d')
         
@@ -341,7 +347,7 @@ def cleanup_parking_stats(conn):
         cursor = conn.cursor()
         
         # Определяем период хранения - храним данные за последние 7 дней
-        retention_period = datetime.now() - timedelta(days=7)
+        retention_period = datetime.now(moscow_tz) - timedelta(days=7)
         
         # Удаление старых записей из parking_stats
         cursor.execute("DELETE FROM parking_stats WHERE timestamp < ?", (retention_period.strftime('%Y-%m-%d %H:%M:%S'),))
@@ -363,6 +369,9 @@ async def collect_parking_data():
     session = create_session()
     parking_data = load_parking_data()
     
+    # Выводим текущее московское время при запуске
+    logger.info(f"Текущее московское время: {datetime.now(moscow_tz)}")
+    
     # Добавляем все парковки в избранное для сбора статистики, если их еще нет
     for parking in parking_data:
         try:
@@ -379,8 +388,8 @@ async def collect_parking_data():
     # Запускаем основной цикл сбора данных
     while True:
         try:
-            # Получаем текущий час для отслеживания обновлений
-            current_hour = datetime.now().hour
+            # Получаем текущий час для отслеживания обновлений (московское время)
+            current_hour = datetime.now(moscow_tz).hour
             last_update_hour = current_hour
             
             # Выбираем парковки для сбора данных
@@ -402,18 +411,20 @@ async def collect_parking_data():
                 except Exception as e:
                     logger.error(f"Ошибка сбора данных для парковки {parking_id}: {e}")
             
-            # Обновляем почасовые данные каждый час
-            now_hour = datetime.now().hour
+            # Обновляем почасовые данные каждый час (московское время)
+            now_hour = datetime.now(moscow_tz).hour
             if now_hour != last_update_hour:
                 update_hourly_data(conn)
                 last_update_hour = now_hour
+                logger.info(f"Обновлен час в почасовой статистике: {now_hour}:00 (МСК)")
                     
-            # Ждем до следующего часа
+            # Ждем до следующего часа (московское время)
             logger.info("Сбор данных завершен. Ожидание до следующего часа...")
-            # Вычисляем время до следующего часа
-            now = datetime.now()
+            # Вычисляем время до следующего часа по московскому времени
+            now = datetime.now(moscow_tz)
             next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
             seconds_to_wait = (next_hour - now).total_seconds()
+            logger.info(f"Следующее обновление в {next_hour.strftime('%H:%M:%S')} (МСК), через {int(seconds_to_wait)} секунд")
             await asyncio.sleep(seconds_to_wait)  # Ждем до начала следующего часа
                 
         except Exception as e:
