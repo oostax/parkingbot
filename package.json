@@ -15,8 +15,7 @@
     "fix-env": "node scripts/fix-env-variables.js",
     "fix-db": "node scripts/fix-sqlite-permissions.js",
     "fix-bot": "node scripts/fix-telegram-bot.js",
-    "fix-all": "node scripts/fix-all.js",
-    "set-token": "node scripts/set-telegram-token.js"
+    "fix-all": "node scripts/fix-all.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",

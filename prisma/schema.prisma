@@ -57,7 +57,6 @@ model daily_stats {
   lastUpdated     DateTime
 
   @@unique([parkingId, hour])
-  @@map("daily_stats")
 }
 
 // Модели для системы геймификации

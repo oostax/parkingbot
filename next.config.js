@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   env: {
-    DATABASE_URL: "file:./pb/bot_database.db",
+    DATABASE_URL: "file:./prisma/dev.db",
     NEXTAUTH_SECRET: "parkingbot_secure_secret_key_for_authentication_12345",
     NEXTAUTH_URL: "https://mosparkingbot.ru"
   },

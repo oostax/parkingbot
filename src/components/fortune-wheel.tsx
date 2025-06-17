@@ -140,66 +140,84 @@ export default function FortuneWheel({ tokenCost = 30, onWin, userTokens = 0 }: 
     setIsSpinning(true);
     setSelectedPrize(null);
     
-    // Выбираем приз на основе вероятности
-    const randomValue = Math.random() * 100;
-    let cumulativeProbability = 0;
-    let winningPrize: WheelPrize | null = null;
-    
-    for (const prize of prizes) {
-      cumulativeProbability += prize.probability;
-      if (randomValue <= cumulativeProbability) {
-        winningPrize = prize;
-        break;
-      }
-    }
-    
-    // Если не выбран приз (что маловероятно), выбираем первый
-    if (!winningPrize && prizes.length > 0) {
-      winningPrize = prizes[0];
-    }
-    
-    if (!winningPrize) return;
-    
-    // Находим индекс выигрышного сектора
-    const winningIndex = prizes.findIndex(p => p.id === winningPrize?.id);
-    
-    // Вычисляем угол для остановки колеса
-    const totalPrizes = prizes.length;
-    const arc = 2 * Math.PI / totalPrizes;
-    
-    // Базовое количество оборотов (5-10) + позиция выигрышного сектора
-    const spinAngle = 
-      2 * Math.PI * (5 + Math.random() * 5) + // 5-10 полных оборотов
-      (totalPrizes - winningIndex - 0.5) * arc; // Позиция выигрышного сектора (в обратном порядке)
-    
-    // Анимация вращения
-    let currentRotation = rotation;
-    const startTime = Date.now();
-    const duration = 5000; // 5 секунд на вращение
-    
-    const animateSpin = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      
-      // Функция замедления
-      const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
-      
-      // Текущий угол поворота
-      currentRotation = rotation + spinAngle * easeOut(progress);
-      setRotation(currentRotation);
-      
-      if (progress < 1) {
-        requestAnimationFrame(animateSpin);
-      } else {
-        setIsSpinning(false);
-        setSelectedPrize(winningPrize);
-        if (onWin && winningPrize) {
-          onWin(winningPrize);
+    // Делаем запрос к API для вращения колеса
+    fetch('/api/gamification/wheel', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Ошибка при вращении колеса');
         }
-      }
-    };
-    
-    requestAnimationFrame(animateSpin);
+        return response.json();
+      })
+      .then(data => {
+        if (data.success && data.prize) {
+          // Находим индекс выигрышного сектора
+          const winningPrize = data.prize;
+          const winningIndex = prizes.findIndex(p => p.id === winningPrize.id);
+          
+          // Вычисляем угол для остановки колеса
+          const totalPrizes = prizes.length;
+          const arc = 2 * Math.PI / totalPrizes;
+          
+          // Базовое количество оборотов (5-10) + позиция выигрышного сектора
+          const spinAngle = 
+            2 * Math.PI * (5 + Math.random() * 5) + // 5-10 полных оборотов
+            (totalPrizes - winningIndex - 0.5) * arc;
+          
+          // Запускаем анимацию вращения
+          let startTime: number | null = null;
+          const animationDuration = 5000; // 5 секунд
+          
+          const animate = (timestamp: number) => {
+            if (!startTime) startTime = timestamp;
+            const elapsed = timestamp - startTime;
+            const progress = Math.min(elapsed / animationDuration, 1);
+            
+            // Функция замедления (easeOut)
+            const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
+            const currentAngle = spinAngle * easeOut(progress);
+            
+            setRotation(currentAngle);
+            
+            if (progress < 1) {
+              requestAnimationFrame(animate);
+            } else {
+              // Анимация завершена
+              setSelectedPrize(winningPrize);
+              setIsSpinning(false);
+              
+              // Вызываем колбэк с информацией о выигрыше
+              if (onWin) {
+                onWin(winningPrize);
+              }
+            }
+          };
+          
+          requestAnimationFrame(animate);
+        } else {
+          // Если что-то пошло не так
+          setIsSpinning(false);
+          toast({
+            title: "Ошибка",
+            description: data.error || "Произошла ошибка при вращении колеса",
+            variant: "destructive",
+          });
+        }
+      })
+      .catch(error => {
+        console.error("Error spinning wheel:", error);
+        setIsSpinning(false);
+        toast({
+          title: "Ошибка",
+          description: "Не удалось связаться с сервером",
+          variant: "destructive",
+        });
+      });
   };
 
   return (

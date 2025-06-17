@@ -21,7 +21,7 @@ export default function ProfilePage() {
   const [favoriteCount, setFavoriteCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("profile");
-  const [userTokens, setUserTokens] = useState(350); // Временное значение для демонстрации
+  const [userTokens, setUserTokens] = useState(10); // Начальное значение соответствует профилю
   const { toast } = useToast();
 
   // Перенаправляем на главную страницу если пользователь не авторизован
@@ -42,6 +42,27 @@ export default function ProfilePage() {
         })
         .catch(err => console.error("Error fetching favorites:", err))
         .finally(() => setIsLoading(false));
+    }
+  }, [session]);
+
+  // Загрузка баланса пользователя
+  useEffect(() => {
+    if (session) {
+      fetch("/api/gamification/profile")
+        .then(res => {
+          if (!res.ok) {
+            throw new Error(`Error fetching profile: ${res.status}`);
+          }
+          return res.json();
+        })
+        .then(data => {
+          if (data.profile && data.profile.tokenBalance !== undefined) {
+            setUserTokens(data.profile.tokenBalance);
+          }
+        })
+        .catch(err => {
+          console.error("Error loading user balance:", err);
+        });
     }
   }, [session]);
 

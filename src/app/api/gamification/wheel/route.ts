@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/options";
 import { WheelPrize } from "@/types/gamification";
+import prisma from "@/lib/prisma";
 
 // Временные данные для демонстрации
 const mockPrizes: WheelPrize[] = [
@@ -17,7 +18,7 @@ const mockPrizes: WheelPrize[] = [
 
 // Временные данные о балансе пользователей
 const mockUserTokens: Record<string, number> = {
-  "default": 350
+  "default": 10
 };
 
 export async function GET() {
@@ -54,8 +55,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
     
-    // Получаем текущий баланс пользователя
-    const userTokens = mockUserTokens[userId] || mockUserTokens.default;
+    // Получаем текущий баланс пользователя из базы данных
+    let userProfile;
+    try {
+      userProfile = await prisma.userProfile.findUnique({
+        where: {
+          userId: userId,
+        },
+      });
+    } catch (error) {
+      console.error("Error finding user profile:", error);
+      return NextResponse.json({ error: "Error finding user profile" }, { status: 500 });
+    }
+    
+    // Если профиль не найден, используем моковые данные
+    const userTokens = userProfile?.tokenBalance || mockUserTokens.default;
     
     // Проверяем, достаточно ли токенов для вращения
     const spinCost = 30; // Стоимость одного вращения
@@ -89,9 +103,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to select prize" }, { status: 500 });
     }
     
-    // В реальном приложении здесь будет обновление баланса пользователя
-    // и запись информации о выигрыше в базу данных
-    
     // Вычитаем стоимость вращения
     const newBalance = userTokens - spinCost;
     
@@ -101,7 +112,47 @@ export async function POST(request: Request) {
       finalBalance += Number(prize.value);
     }
     
-    // Для демонстрации просто возвращаем информацию о выигрыше
+    // Обновляем баланс пользователя в базе данных
+    try {
+      // Создаем транзакцию для списания стоимости вращения
+      await prisma.tokenTransaction.create({
+        data: {
+          userId: userId,
+          amount: -spinCost,
+          type: "WHEEL_SPIN",
+          description: "Вращение колеса удачи",
+        },
+      });
+      
+      // Если выигрыш - токены, создаем транзакцию для начисления
+      if (prize.type === 'tokens') {
+        await prisma.tokenTransaction.create({
+          data: {
+            userId: userId,
+            amount: Number(prize.value),
+            type: "WHEEL_WIN",
+            description: `Выигрыш в колесе удачи: ${prize.name}`,
+          },
+        });
+      }
+      
+      // Обновляем баланс в профиле пользователя
+      await prisma.userProfile.update({
+        where: {
+          userId: userId,
+        },
+        data: {
+          tokenBalance: finalBalance,
+          totalTokensSpent: { increment: spinCost },
+          ...(prize.type === 'tokens' ? { totalTokensEarned: { increment: Number(prize.value) } } : {}),
+        },
+      });
+    } catch (error) {
+      console.error("Error updating user balance:", error);
+      return NextResponse.json({ error: "Error updating user balance" }, { status: 500 });
+    }
+    
+    // Возвращаем информацию о выигрыше
     return NextResponse.json({ 
       success: true,
       prize,
