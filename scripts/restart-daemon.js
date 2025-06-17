@@ -1,17 +1,34 @@
 const { exec } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
-console.log('Restarting stats-daemon...');
+console.log('Перезапуск демона для сбора статистики парковок...');
 
-// Используем pm2 для перезапуска daemon
-exec('pm2 restart stats-daemon', (error, stdout, stderr) => {
+// Останавливаем существующий демон через PM2
+exec('pm2 stop stats-daemon', (error, stdout, stderr) => {
   if (error) {
-    console.error(`Error restarting daemon: ${error.message}`);
-    return;
+    console.error(`Ошибка остановки демона: ${error.message}`);
   }
-  if (stderr) {
-    console.error(`Stderr: ${stderr}`);
+  
+  // Удаляем старые файлы прогнозов, так как структура изменилась
+  const dbPath = path.resolve(process.cwd(), 'pb', 'bot_database.db');
+  
+  if (fs.existsSync(dbPath)) {
+    // Создаем резервную копию базы данных
+    const backupPath = path.resolve(process.cwd(), 'pb', `bot_database_backup_${Date.now()}.db`);
+    fs.copyFileSync(dbPath, backupPath);
+    console.log(`Создана резервная копия базы данных: ${backupPath}`);
   }
-  console.log(`Daemon restarted successfully.`);
-  console.log(`Stdout: ${stdout}`);
+
+  // Запускаем демон заново с новой конфигурацией
+  exec('pm2 start ecosystem.config.js --only stats-daemon', (error, stdout, stderr) => {
+    if (error) {
+      console.error(`Ошибка запуска демона: ${error.message}`);
+      return;
+    }
+    
+    console.log('Демон сбора статистики успешно перезапущен!');
+    console.log('Новая система прогнозов активирована.');
+    console.log('Сбор данных и обновление прогнозов теперь происходит каждый час.');
+  });
 }); 

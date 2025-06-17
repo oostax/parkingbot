@@ -103,33 +103,26 @@ CREATE TABLE IF NOT EXISTS parking_stats (
 )
 ''')
 
-# Create daily_stats table for hourly averages
+# Create hourly_parking_data table для хранения почасовой статистики
 cursor.execute('''
-CREATE TABLE IF NOT EXISTS daily_stats (
+CREATE TABLE IF NOT EXISTS hourly_parking_data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     parking_id TEXT NOT NULL,
-    hour INTEGER NOT NULL,
-    avg_free_spaces REAL NOT NULL,
-    avg_occupancy REAL NOT NULL,
-    sample_count INTEGER NOT NULL,
-    last_updated DATETIME NOT NULL,
+    hour INTEGER NOT NULL CHECK(hour >= 0 AND hour < 24),
+    free_spaces INTEGER NOT NULL,
+    total_spaces INTEGER NOT NULL,
+    date_updated DATE NOT NULL,
     UNIQUE(parking_id, hour)
 )
 ''')
 
-# Create forecasts table
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS forecasts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    parking_id TEXT NOT NULL,
-    timestamp DATETIME NOT NULL,
-    expected_free_spaces INTEGER NOT NULL,
-    expected_occupancy REAL NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(parking_id, timestamp)
-)
-''')
+# Удаляем старую таблицу daily_stats, так как она больше не нужна
+cursor.execute('DROP TABLE IF EXISTS daily_stats')
 
+# Удаляем старую таблицу forecasts, так как мы меняем структуру прогнозов
+cursor.execute('DROP TABLE IF EXISTS forecasts')
+
+# Create forecasts table - теперь будет использоваться hourly_parking_data
 conn.commit()
 conn.close()
 
@@ -142,20 +135,65 @@ print("Database initialized successfully.")
       return;
     }
     console.log(stdout);
-    initDailyStats();
+    initHourlyData();
   });
 }
 
-function initDailyStats() {
-  console.log('Инициализируем начальные данные статистики...');
+function initHourlyData() {
+  console.log('Инициализируем начальные данные почасовой статистики...');
   
-  // Выполняем скрипт инициализации из init-db
-  exec('npm run init-db', (error, stdout, stderr) => {
+  // Выполняем скрипт инициализации для hourly_parking_data
+  const initScript = path.resolve(process.cwd(), 'pb', 'init_hourly_data.py');
+  fs.writeFileSync(initScript, `
+import sqlite3
+import os
+import json
+from datetime import datetime
+
+print("Initializing hourly data...")
+
+db_path = os.path.join(os.path.dirname(__file__), 'bot_database.db')
+conn = sqlite3.connect(db_path)
+cursor = conn.cursor()
+
+# Загружаем данные о парковках
+parking_data_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'public', 'data', 'parking_data.json')
+with open(parking_data_path, 'r', encoding='utf-8') as f:
+    parking_data = json.load(f)
+
+today = datetime.now().strftime('%Y-%m-%d')
+default_spaces = 50
+
+# Инициализируем почасовую статистику для всех парковок
+for parking in parking_data:
+    parking_id = parking.get('id')
+    if not parking_id:
+        continue
+    
+    # Инициализируем статистику для каждого часа (0-23)
+    for hour in range(24):
+        # По умолчанию предполагаем, что половина мест свободна
+        total_spaces = parking.get('spaces', {}).get('overall', {}).get('total', default_spaces)
+        free_spaces = total_spaces // 2
+        
+        cursor.execute('''
+        INSERT OR IGNORE INTO hourly_parking_data 
+        (parking_id, hour, free_spaces, total_spaces, date_updated) 
+        VALUES (?, ?, ?, ?, ?)
+        ''', (parking_id, hour, free_spaces, total_spaces, today))
+
+conn.commit()
+conn.close()
+
+print("Hourly data initialized successfully!")
+  `);
+
+  exec('python3 ' + initScript, (error, stdout, stderr) => {
     if (error) {
-      console.error(`Ошибка при инициализации статистики: ${error.message}`);
+      console.error(`Ошибка при инициализации почасовой статистики: ${error.message}`);
       return;
     }
-    console.log('Начальные данные статистики созданы успешно!');
+    console.log(stdout);
   });
 }
 
@@ -242,246 +280,80 @@ def record_parking_state(conn, parking_id, free_spaces, total_spaces):
         logger.error(f"Ошибка записи состояния парковки {parking_id}: {e}")
         return False
 
-# Обновление дневной статистики
-def update_daily_stats(conn):
+# Обновление почасовых данных на основе текущей информации
+def update_hourly_data(conn):
     try:
         cursor = conn.cursor()
-        yesterday = (datetime.now() - timedelta(days=1)).date()
+        now = datetime.now()
+        current_hour = now.hour
+        today = now.strftime('%Y-%m-%d')
         
-        # Получаем все парковки с данными
-        parkings = cursor.execute("SELECT DISTINCT parking_id FROM parking_stats").fetchall()
+        # Получаем все записи parking_stats за последний час
+        one_hour_ago = now - timedelta(hours=1)
+        
+        # Получаем все парковки с данными за последний час
+        cursor.execute('''
+            SELECT DISTINCT parking_id 
+            FROM parking_stats 
+            WHERE timestamp >= ?
+        ''', (one_hour_ago.strftime('%Y-%m-%d %H:%M:%S'),))
+        
+        parkings = cursor.fetchall()
         
         for (parking_id,) in parkings:
-            # Для каждого часа вычисляем среднее значение
-            stats = cursor.execute('''
+            # Для каждой парковки вычисляем среднее значение свободных мест за последний час
+            cursor.execute('''
                 SELECT 
-                    strftime('%H', timestamp) as hour,
                     AVG(free_spaces) as avg_free,
-                    AVG(CAST(free_spaces AS FLOAT) / total_spaces) as avg_occupancy,
+                    AVG(total_spaces) as avg_total,
                     COUNT(*) as count
                 FROM parking_stats
                 WHERE parking_id = ? 
-                AND date(timestamp) = ?
-                GROUP BY strftime('%H', timestamp)
-            ''', (parking_id, yesterday)).fetchall()
+                AND timestamp >= ?
+            ''', (parking_id, one_hour_ago.strftime('%Y-%m-%d %H:%M:%S')))
             
-            for hour, avg_free, avg_occupancy, count in stats:
-                cursor.execute('''
-                    INSERT OR REPLACE INTO daily_stats 
-                    (parking_id, hour, avg_free_spaces, avg_occupancy, sample_count, last_updated)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (parking_id, int(hour), avg_free, avg_occupancy, count, yesterday))
+            result = cursor.fetchone()
+            if result:
+                avg_free, avg_total, count = result
+                
+                if count > 0 and avg_free is not None and avg_total is not None:
+                    avg_free = int(avg_free)
+                    avg_total = int(avg_total)
+                    
+                    # Обновляем или вставляем данные для текущего часа
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO hourly_parking_data 
+                        (parking_id, hour, free_spaces, total_spaces, date_updated)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (parking_id, current_hour, avg_free, avg_total, today))
         
         conn.commit()
-        logger.info(f"Обновлена дневная статистика для {len(parkings)} парковок")
+        logger.info(f"Обновлены почасовые данные для {len(parkings)} парковок за час {current_hour}:00")
         
         # Очистка устаревших данных из parking_stats
         cleanup_parking_stats(conn)
     except Exception as e:
-        logger.error(f"Ошибка обновления дневной статистики: {e}")
+        logger.error(f"Ошибка обновления почасовых данных: {e}")
 
 # Функция для очистки устаревших данных parking_stats
 def cleanup_parking_stats(conn):
     try:
         cursor = conn.cursor()
         
-        # Определяем период хранения - храним данные за последние 30 дней
-        retention_period = datetime.now() - timedelta(days=30)
+        # Определяем период хранения - храним данные за последние 7 дней
+        retention_period = datetime.now() - timedelta(days=7)
         
         # Удаление старых записей из parking_stats
-        cursor.execute("DELETE FROM parking_stats WHERE timestamp < ?", (retention_period,))
+        cursor.execute("DELETE FROM parking_stats WHERE timestamp < ?", (retention_period.strftime('%Y-%m-%d %H:%M:%S'),))
         deleted_count = cursor.rowcount
         
         conn.commit()
         
         if deleted_count > 0:
-            logger.info(f"Очистка parking_stats: удалено {deleted_count} записей старше 30 дней")
+            logger.info(f"Очистка parking_stats: удалено {deleted_count} записей старше 7 дней")
         
     except Exception as e:
         logger.error(f"Ошибка при очистке parking_stats: {e}")
-
-# Генерация прогнозов на основе статистики
-def generate_forecasts(conn):
-    try:
-        cursor = conn.cursor()
-        now = datetime.now()
-        current_hour = now.hour
-        
-        # Очистка устаревших прогнозов - удаляем прогнозы из прошлого и старше MAX_FORECAST_DAYS
-        cleanup_forecasts(conn)
-        
-        # Получаем все парковки с данными статистики или текущими данными
-        parkings = cursor.execute("""
-            SELECT DISTINCT parking_id FROM (
-                SELECT DISTINCT parking_id FROM daily_stats
-                UNION
-                SELECT DISTINCT parking_id FROM parking_stats
-                WHERE timestamp >= datetime('now', '-2 hours')
-            )
-        """).fetchall()
-        
-        total_parkings = len(parkings)
-        logger.info(f"Генерация прогнозов для {total_parkings} парковок...")
-        
-        for (parking_id,) in parkings:
-            # Получаем последние данные о парковке
-            recent_data = cursor.execute('''
-                SELECT parking_id, total_spaces, free_spaces 
-                FROM parking_stats 
-                WHERE parking_id = ? 
-                ORDER BY timestamp DESC LIMIT 1
-            ''', (parking_id,)).fetchone()
-            
-            if not recent_data:
-                continue
-                
-            _, total_spaces, current_free = recent_data
-            
-            # Если есть риск деления на ноль
-            if total_spaces == 0:
-                total_spaces = 1  # Избегаем деления на ноль
-            
-            current_occupancy = 1.0 - (current_free / total_spaces)
-            
-            # Получаем статистику по часам для этой парковки
-            daily_stats = cursor.execute('''
-                SELECT hour, avg_free_spaces, avg_occupancy 
-                FROM daily_stats 
-                WHERE parking_id = ? 
-                ORDER BY hour
-            ''', (parking_id,)).fetchall()
-            
-            # Конвертируем в словарь для удобства
-            stats_by_hour = {hour: (avg_free, avg_occupancy) for hour, avg_free, avg_occupancy in daily_stats} if daily_stats else {}
-            
-            # Если нет исторических данных, создаем базовые шаблоны заполненности
-            base_patterns = {}
-            if not stats_by_hour:
-                # Используем базовый шаблон загруженности по часам
-                for hour in range(24):
-                    # Ночью - меньше загруженность (22:00 - 05:59)
-                    if hour >= 22 or hour < 6:
-                        base_occupancy = max(0.2, current_occupancy * 0.6)
-                    # Утренний пик (7:00 - 9:59)
-                    elif 7 <= hour < 10:
-                        base_occupancy = min(0.9, current_occupancy * 1.3)
-                    # Обеденные часы (12:00 - 13:59)
-                    elif 12 <= hour < 14:
-                        base_occupancy = min(0.85, current_occupancy * 1.2)
-                    # Вечерний пик (17:00 - 19:59)
-                    elif 17 <= hour < 20:
-                        base_occupancy = min(0.95, current_occupancy * 1.4)
-                    # Остальное время - примерно как сейчас
-                    else:
-                        base_occupancy = current_occupancy
-                        
-                    free_spaces = int(total_spaces * (1.0 - base_occupancy))
-                    base_patterns[hour] = (free_spaces, base_occupancy)
-            
-            # Генерируем прогнозы на 24 часа вперед
-            for hour_offset in range(1, 25):
-                forecast_time = now + timedelta(hours=hour_offset)
-                forecast_hour = forecast_time.hour
-                
-                # Определяем прогнозные значения
-                if forecast_hour in stats_by_hour:
-                    # Если есть статистика для этого часа
-                    avg_free, avg_occupancy = stats_by_hour[forecast_hour]
-                    
-                    # Делаем прогноз с учетом текущего состояния
-                    # Текущее состояние влияет меньше с увеличением временного промежутка
-                    weight_current = max(0.05, 1.0 - (hour_offset / 24.0))
-                    weight_historic = 1.0 - weight_current
-                    
-                    # Рассчитываем прогноз
-                    predicted_occupancy = (current_occupancy * weight_current) + (avg_occupancy * weight_historic)
-                    predicted_occupancy = max(0.05, min(0.95, predicted_occupancy))  # Ограничиваем в разумных пределах
-                    predicted_free = int(total_spaces * (1.0 - predicted_occupancy))
-                
-                elif forecast_hour in base_patterns:
-                    # Если нет статистики, используем базовые шаблоны с учетом текущего состояния
-                    base_free, base_occupancy = base_patterns[forecast_hour]
-                    
-                    # Влияние текущего состояния уменьшается с увеличением временного промежутка
-                    weight_current = max(0.05, 1.0 - (hour_offset / 24.0))
-                    weight_pattern = 1.0 - weight_current
-                    
-                    predicted_occupancy = (current_occupancy * weight_current) + (base_occupancy * weight_pattern)
-                    predicted_occupancy = max(0.05, min(0.95, predicted_occupancy))
-                    predicted_free = int(total_spaces * (1.0 - predicted_occupancy))
-                
-                else:
-                    # Этот случай не должен наступать, но на всякий случай
-                    predicted_occupancy = current_occupancy
-                    predicted_free = int(total_spaces * (1.0 - predicted_occupancy))
-                
-                # Записываем прогноз
-                cursor.execute('''
-                    INSERT OR REPLACE INTO forecasts 
-                    (parking_id, timestamp, expected_free_spaces, expected_occupancy)
-                    VALUES (?, ?, ?, ?)
-                ''', (parking_id, forecast_time, predicted_free, predicted_occupancy))
-            
-        conn.commit()
-        logger.info("Прогнозы обновлены успешно")
-    except Exception as e:
-        logger.error(f"Ошибка генерации прогнозов: {e}")
-
-# Функция для очистки устаревших прогнозов и оптимизации базы данных
-def cleanup_forecasts(conn):
-    try:
-        cursor = conn.cursor()
-        now = datetime.now()
-        
-        # 1. Удаление прогнозов из прошлого (которые уже произошли)
-        cursor.execute("DELETE FROM forecasts WHERE timestamp < ?", (now,))
-        past_forecasts_deleted = cursor.rowcount
-        
-        # 2. Ограничение периода прогнозирования - удаляем прогнозы старше 3 дней
-        max_forecast_date = now + timedelta(days=3)
-        cursor.execute("DELETE FROM forecasts WHERE timestamp > ?", (max_forecast_date,))
-        far_future_deleted = cursor.rowcount
-        
-        # 3. Оставляем только ключевые часы для долгосрочных прогнозов (за пределами текущего дня)
-        # Для текущего дня оставляем почасовые прогнозы, для последующих - только по ключевым часам
-        tomorrow = datetime(now.year, now.month, now.day) + timedelta(days=1)
-        
-        # Получаем ID записей для удаления - оставляем только ключевые часы (8, 12, 16, 20) для дней после завтра
-        to_delete = cursor.execute("""
-            SELECT id FROM forecasts 
-            WHERE timestamp >= ? 
-            AND cast(strftime('%H', timestamp) as integer) NOT IN (8, 12, 16, 20)
-            AND date(timestamp) > date(?)
-        """, (tomorrow, tomorrow)).fetchall()
-        
-        # Удаляем избыточные записи если они есть
-        if to_delete:
-            delete_ids = [id[0] for id in to_delete]
-            # Удаляем группами по 500, чтобы избежать слишком длинных запросов
-            for i in range(0, len(delete_ids), 500):
-                batch = delete_ids[i:i+500]
-                placeholders = ','.join('?' for _ in batch)
-                cursor.execute(f"DELETE FROM forecasts WHERE id IN ({placeholders})", batch)
-            
-        non_key_hours_deleted = sum(1 for _ in to_delete)
-        
-        # 4. Дефрагментация и оптимизация базы данных (выполняем раз в день)
-        if now.hour == 3:  # Выполняем оптимизацию в 3 часа ночи
-            cursor.execute("VACUUM")
-            cursor.execute("PRAGMA optimize")
-            logger.info("База данных оптимизирована (VACUUM и OPTIMIZE)")
-        
-        conn.commit()
-        
-        total_deleted = past_forecasts_deleted + far_future_deleted + non_key_hours_deleted
-        if total_deleted > 0:
-            logger.info(f"Очистка прогнозов: удалено {total_deleted} записей " + 
-                       f"(из прошлого: {past_forecasts_deleted}, " + 
-                       f"далекое будущее: {far_future_deleted}, " + 
-                       f"неключевые часы: {non_key_hours_deleted})")
-            
-    except Exception as e:
-        logger.error(f"Ошибка при очистке прогнозов: {e}")
 
 # Основная функция сбора данных
 async def collect_parking_data():
@@ -507,6 +379,10 @@ async def collect_parking_data():
     # Запускаем основной цикл сбора данных
     while True:
         try:
+            # Получаем текущий час для отслеживания обновлений
+            current_hour = datetime.now().hour
+            last_update_hour = current_hour
+            
             # Выбираем парковки для сбора данных
             parkings = conn.execute('SELECT DISTINCT parking_id FROM favorites').fetchall()
             logger.info(f"Сбор данных для {len(parkings)} парковок...")
@@ -526,17 +402,15 @@ async def collect_parking_data():
                 except Exception as e:
                     logger.error(f"Ошибка сбора данных для парковки {parking_id}: {e}")
             
-            # Генерируем прогнозы после сбора данных       
-            generate_forecasts(conn)
+            # Обновляем почасовые данные каждый час
+            now_hour = datetime.now().hour
+            if now_hour != last_update_hour:
+                update_hourly_data(conn)
+                last_update_hour = now_hour
                     
-            # Обновляем статистику каждый день в полночь
-            current_hour = datetime.now().hour
-            if current_hour == 0:
-                update_daily_stats(conn)
-                
-            # Ждем 1 час до следующего обновления
-            logger.info("Сбор данных завершен. Ожидание 1 час до следующего обновления...")
-            await asyncio.sleep(3600)  # 1 час вместо 15 минут
+            # Ждем до следующего обновления (проверка каждую минуту)
+            logger.info("Сбор данных завершен. Ожидание до следующей проверки...")
+            await asyncio.sleep(60)  # Проверка каждую минуту
                 
         except Exception as e:
             logger.error(f"Общая ошибка в collect_parking_data: {e}")
@@ -555,11 +429,8 @@ if __name__ == "__main__":
         cursor.execute("SELECT COUNT(*) FROM parking_stats")
         parking_stats_count = cursor.fetchone()[0]
         
-        cursor.execute("SELECT COUNT(*) FROM daily_stats")
-        daily_stats_count = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(*) FROM forecasts")
-        forecasts_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM hourly_parking_data")
+        hourly_data_count = cursor.fetchone()[0]
         
         cursor.execute("SELECT COUNT(*) FROM favorites")
         favorites_count = cursor.fetchone()[0]
@@ -571,8 +442,7 @@ if __name__ == "__main__":
         logger.info(f"Статистика базы данных:")
         logger.info(f"- Размер файла: {db_size_mb:.2f} МБ")
         logger.info(f"- Записей parking_stats: {parking_stats_count}")
-        logger.info(f"- Записей daily_stats: {daily_stats_count}")
-        logger.info(f"- Записей forecasts: {forecasts_count}")
+        logger.info(f"- Записей hourly_parking_data: {hourly_data_count}")
         logger.info(f"- Записей favorites: {favorites_count}")
         
         # Выводим последние обновления статистики

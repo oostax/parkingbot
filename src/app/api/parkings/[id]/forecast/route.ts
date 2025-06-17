@@ -6,11 +6,12 @@ import { query, checkConnection } from "@/lib/sqlite/db";
 const CACHE_TIME = 1800;
 const cache = new Map<string, { data: any; timestamp: number }>();
 
-interface ForecastData {
+interface HourlyParkingData {
   parking_id: string;
-  timestamp: string;
-  expected_occupancy: number;
-  expected_free_spaces: number;
+  hour: number;
+  free_spaces: number;
+  total_spaces: number;
+  date_updated: string;
 }
 
 export async function GET(
@@ -39,31 +40,49 @@ export async function GET(
       return generateMockResponse(parkingId, now);
     }
     
-    // Получение данных о прогнозах из SQLite
-    const forecasts: ForecastData[] = await query<ForecastData>(
+    // Получение почасовых данных из таблицы hourly_parking_data
+    const hourlyData: HourlyParkingData[] = await query<HourlyParkingData>(
       `SELECT 
         parking_id, 
-        timestamp, 
-        expected_occupancy, 
-        expected_free_spaces 
-       FROM forecasts 
+        hour, 
+        free_spaces, 
+        total_spaces,
+        date_updated
+       FROM hourly_parking_data 
        WHERE parking_id = ? 
-       ORDER BY timestamp 
-       LIMIT 24`,
+       ORDER BY hour`,
       [parkingId]
     );
     
     // Если данных нет, используем мок-данные
-    if (!forecasts || forecasts.length === 0) {
+    if (!hourlyData || hourlyData.length === 0) {
       return generateMockResponse(parkingId, now);
     }
     
-    // Форматирование данных для фронтенда
-    const formattedForecasts: Forecast[] = forecasts.map((forecast) => ({
-      timestamp: new Date(forecast.timestamp).toISOString(),
-      expected_occupancy: forecast.expected_occupancy,
-      expected_free_spaces: forecast.expected_free_spaces,
-    }));
+    // Текущее время (Московское, UTC+3)
+    const currentDate = new Date();
+    const mskOffset = 3; // Московское время UTC+3
+    const localOffset = -currentDate.getTimezoneOffset() / 60;
+    const hourDiff = mskOffset - localOffset;
+    
+    // Форматирование данных для фронтенда в формате прогнозов
+    const formattedForecasts: Forecast[] = hourlyData.map((hourData) => {
+      // Конвертируем час в дату-время для совместимости с предыдущим форматом
+      const forecastDate = new Date(currentDate);
+      // Устанавливаем час в московском времени с учетом смещения
+      forecastDate.setHours((hourData.hour - hourDiff + 24) % 24);
+      
+      // Рассчитываем заполненность
+      const occupancy = hourData.total_spaces > 0 
+        ? 1 - (hourData.free_spaces / hourData.total_spaces) 
+        : 0.5;
+
+      return {
+        timestamp: forecastDate.toISOString(),
+        expected_occupancy: occupancy,
+        expected_free_spaces: hourData.free_spaces,
+      };
+    });
 
     const result = { forecasts: formattedForecasts };
     
@@ -101,10 +120,10 @@ function generateMockResponse(parkingId: string, now: number) {
   
   for (let hour = 0; hour < 24; hour++) {
     const forecastDate = new Date(currentDate);
-    forecastDate.setHours(currentDate.getHours() + hour);
+    forecastDate.setHours(hour);
     
     // Определение шаблона заполненности на основе часа дня
-    const hourOfDay = (currentDate.getHours() + hour) % 24;
+    const hourOfDay = hour % 24;
     const baseOccupancy = basePatterns[hourOfDay];
     
     // Добавление вариации на основе ID парковки

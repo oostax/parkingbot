@@ -9,14 +9,16 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Star, MapPin, X, Activity, Heart, HeartOff, Car, Accessibility } from "lucide-react";
 import { getParkingRealTimeData } from "@/lib/parking-utils";
 import { useSession } from "next-auth/react";
+import ParkingRecommendationComponent from "./parking-recommendation";
 
 interface ParkingCardProps {
   parking: ParkingInfo;
   onClose: () => void;
   onToggleFavorite: () => void;
+  allParkings?: ParkingInfo[];  // Добавляем список всех парковок для рекомендаций
 }
 
-export default function ParkingCard({ parking, onClose, onToggleFavorite }: ParkingCardProps) {
+export default function ParkingCard({ parking, onClose, onToggleFavorite, allParkings = [] }: ParkingCardProps) {
   const { data: session } = useSession();
   const { toast } = useToast();
   const [isLoadingData, setIsLoadingData] = useState(true);
@@ -175,6 +177,24 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
     return { bg: "bg-pink-50", text: "text-red-500" };
   };
 
+  // Обработчик выбора альтернативной парковки
+  const handleSelectAlternative = (alternativeParking: ParkingInfo) => {
+    // Здесь мы можем обработать выбор пользователем альтернативной парковки
+    // Например, можно искать эту парковку в общем списке и вызывать onSelectParking
+    const alternativeWithDetails = allParkings.find(p => p.id === alternativeParking.id);
+    if (alternativeWithDetails) {
+      // Закрываем текущую карточку
+      onClose();
+      
+      // Искусственно создаем событие клика по маркеру парковки на карте
+      // Это приведет к показу карточки для выбранной альтернативной парковки
+      const event = new CustomEvent('parking-selected', { 
+        detail: { parking: alternativeWithDetails } 
+      });
+      document.dispatchEvent(event);
+    }
+  };
+
   return (
     <Card className="w-full shadow-lg">
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
@@ -197,9 +217,10 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
       
       <CardContent className="pb-2">
         <Tabs defaultValue="status">
-          <TabsList className="w-full grid grid-cols-2">
+          <TabsList className="w-full grid grid-cols-3">
             <TabsTrigger value="status">Статус</TabsTrigger>
             <TabsTrigger value="forecast">Прогноз</TabsTrigger>
+            <TabsTrigger value="recommendation">Рекомендации</TabsTrigger>
           </TabsList>
           
           <TabsContent value="status" className="space-y-2 pt-2">
@@ -480,6 +501,16 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite }: Park
                 </Button>
               </div>
             )}
+          </TabsContent>
+
+          {/* Новая вкладка с рекомендациями */}
+          <TabsContent value="recommendation" className="pt-2">
+            <ParkingRecommendationComponent 
+              parking={parking}
+              allParkings={allParkings}
+              forecasts={forecasts}
+              onSelectAlternative={handleSelectAlternative}
+            />
           </TabsContent>
         </Tabs>
       </CardContent>

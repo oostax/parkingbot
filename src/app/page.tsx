@@ -329,6 +329,7 @@ export default function Home() {
                     parking={selectedParking} 
                     onClose={handleCloseParking}
                     onToggleFavorite={() => toggleFavorite(selectedParking)}
+                    allParkings={parkings}
                   />
                 </div>
               )}

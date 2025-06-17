@@ -145,8 +145,11 @@ export default function FavoritesList({ onParkingSelect, onToggleFavorite }: Fav
                   <Button 
                     size="sm" 
                     onClick={() => {
-                      const url = `https://yandex.ru/maps/?text=${parking.name.replace(/ /g, '+')}&ll=${parking.lng},${parking.lat}&z=15`;
-                      window.open(url, '_blank');
+                      const longitude = parking.lng || parking.lon || 37.6156; // Default to Moscow center longitude if nothing available
+                      window.open(
+                        `https://yandex.ru/maps/?rtext=~${parking.lat},${longitude}`,
+                        "_blank"
+                      );
                     }}
                   >
                     <Navigation2 className="h-4 w-4" />
