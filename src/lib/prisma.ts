@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
 // Явно указываем URL базы данных
-const databaseUrl = "file:./prisma/dev.db";
+const databaseUrl = "file:../pb/bot_database.db";
 
 // Use a global instance to avoid multiple instances during hot reloads
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
