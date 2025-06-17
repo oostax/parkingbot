@@ -236,12 +236,16 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
   };
 
   return (
-    <Card className="w-full shadow-lg">
+    <Card className="w-full shadow-lg relative">
+      {parking.isFavorite && (
+        <div className="absolute top-2 right-2 z-10 bg-yellow-50 p-1.5 rounded-full shadow-sm">
+          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+        </div>
+      )}
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
-        <div>
+        <div className="flex-1">
           <div className="flex items-center">
             <h3 className="font-bold text-lg">{parking.name}</h3>
-            {parking.isFavorite && <Star className="h-4 w-4 ml-1 fill-yellow-400 text-yellow-400" />}
           </div>
           <p className="text-sm text-muted-foreground">{parking.street} {parking.house}</p>
           {parking.subway && (

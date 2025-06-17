@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useTelegramLocation } from '@/hooks/use-telegram-location';
 import { getParkingRecommendations } from '@/lib/recommendation-service';
 import { ParkingInfo } from '@/types/parking';
-import { Clock, Car, MapPin, AlertTriangle, ThumbsUp, Map } from 'lucide-react';
+import { Clock, Car, MapPin, AlertTriangle, ThumbsUp, Map, Calendar } from 'lucide-react';
 import { Badge } from "@/components/ui/badge";
 
 interface ParkingRecommendationProps {
@@ -27,6 +27,18 @@ export default function ParkingRecommendation({
   
   // Добавляем мемоизацию ID парковки, чтобы отслеживать реальные изменения
   const [lastProcessedParkingId, setLastProcessedParkingId] = useState<string | null>(null);
+
+  // Функция для форматирования времени прибытия
+  const formatArrivalTime = (travelTimeMinutes: number): string => {
+    const now = new Date();
+    const arrivalTime = new Date(now.getTime() + travelTimeMinutes * 60 * 1000);
+    
+    // Форматируем время как "HH:MM"
+    const hours = arrivalTime.getHours().toString().padStart(2, '0');
+    const minutes = arrivalTime.getMinutes().toString().padStart(2, '0');
+    
+    return `${hours}:${minutes}`;
+  };
 
   useEffect(() => {
     const loadRecommendation = async () => {
@@ -157,6 +169,11 @@ export default function ParkingRecommendation({
   };
 
   const style = getRecommendationStyle();
+  
+  // Вычисляем примерное время прибытия, если есть данные о времени в пути
+  const estimatedArrivalTime = recommendation.travelTime 
+    ? formatArrivalTime(recommendation.travelTime)
+    : null;
 
   return (
     <Card className={`mt-4 ${style.borderColor}`}>
@@ -170,9 +187,18 @@ export default function ParkingRecommendation({
         </div>
         
         {recommendation.travelTime && (
-          <div className="flex items-center text-sm text-gray-600 mb-2">
-            <Clock className="h-4 w-4 mr-2" />
-            <span>Время в пути: приблизительно {recommendation.travelTime} мин</span>
+          <div className="flex flex-col space-y-2 mb-3">
+            <div className="flex items-center text-sm text-gray-600">
+              <Clock className="h-4 w-4 mr-2 shrink-0" />
+              <span>Время в пути: приблизительно {recommendation.travelTime} мин</span>
+            </div>
+            
+            {estimatedArrivalTime && (
+              <div className="flex items-center text-sm text-gray-600">
+                <Calendar className="h-4 w-4 mr-2 shrink-0" />
+                <span>Примерное прибытие в {estimatedArrivalTime}</span>
+              </div>
+            )}
           </div>
         )}
         
@@ -180,7 +206,10 @@ export default function ParkingRecommendation({
           <div className="flex items-center text-sm text-gray-600 mb-2">
             <Car className="h-4 w-4 mr-2" />
             <span>
-              Свободных мест: {recommendation.availableSpots} из {parking.totalSpaces || '?'}
+              {recommendation.recommendation === 'recommended' 
+                ? `К вашему прибытию ожидается ${recommendation.availableSpots} свободных мест из ${parking.totalSpaces || '?'}`
+                : `Свободных мест: ${recommendation.availableSpots} из ${parking.totalSpaces || '?'}`
+              }
             </span>
           </div>
         )}

@@ -23,10 +23,20 @@ interface ParkingRecommendation {
   }>;
 }
 
+interface ParkingForecast {
+  hour: number;
+  expected_occupancy: number;
+  expected_free_spaces: number;
+}
+
 // Пороговые значения для рекомендаций
 const MINIMUM_FREE_SPACES = 5; // Минимальное количество свободных мест для рекомендации
 const CRITICAL_FREE_SPACES = 2; // Критическое значение свободных мест
 const MAX_SAFE_ARRIVAL_TIME = 20; // Максимальное время в пути (мин) для комфортного прибытия
+const HIGH_AVAILABILITY_THRESHOLD = 0.3; // Если свободно более 30% мест, считаем парковку свободной
+const NIGHT_HOURS_START = 22; // Начало "ночного" периода (22:00)
+const NIGHT_HOURS_END = 7; // Конец "ночного" периода (7:00)
+const COMFORTABLE_FREE_RATIO = 0.15; // Если свободно более 15% мест, считается достаточным для комфортной парковки
 
 // Кеш для хранения расчетов маршрутов
 // Ключ: startLat_startLng_endLat_endLng, значение: RouteInfo
@@ -105,6 +115,148 @@ export async function calculateRouteInfo(
 }
 
 /**
+ * Получает прогноз загруженности парковки на указанный час
+ */
+async function getParkingForecastForHour(parkingId: string, targetHour: number): Promise<ParkingForecast | null> {
+  try {
+    const response = await fetch(`/api/parkings/${parkingId}/forecast?hour=${targetHour}`, {
+      headers: {
+        'Cache-Control': 'no-cache'
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`Ошибка при получении прогноза для парковки ${parkingId}: ${response.status}`);
+      return null;
+    }
+    
+    const data = await response.json();
+    
+    if (data && data.forecasts && data.forecasts.length > 0) {
+      // Находим прогноз для запрашиваемого часа
+      const forecast = data.forecasts.find((f: any) => {
+        const forecastDate = new Date(f.timestamp);
+        return forecastDate.getHours() === targetHour;
+      });
+      
+      if (forecast) {
+        return {
+          hour: targetHour,
+          expected_occupancy: forecast.expected_occupancy,
+          expected_free_spaces: forecast.expected_free_spaces
+        };
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error(`Ошибка получения прогноза для парковки ${parkingId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Проверяет, является ли текущее время ночным периодом
+ * когда парковки обычно пустые
+ */
+function isNightTime(): boolean {
+  const currentHour = new Date().getHours();
+  return currentHour >= NIGHT_HOURS_START || currentHour < NIGHT_HOURS_END;
+}
+
+/**
+ * Предсказывает, будет ли парковка доступна к моменту прибытия
+ * учитывая текущую загрузку, прогнозы и время суток
+ */
+async function predictParkingAvailability(
+  parking: ParkingInfo, 
+  travelTimeMinutes: number
+): Promise<{ willBeAvailable: boolean; reason: string; expectedFreeSpaces?: number }> {
+  // Если нет данных о свободных местах, не можем предсказать
+  if (parking.freeSpaces === undefined || parking.totalSpaces === undefined) {
+    return { 
+      willBeAvailable: false, 
+      reason: 'Нет данных о загруженности парковки'
+    };
+  }
+  
+  // Текущая доступность (процент свободных мест)
+  const currentAvailabilityRatio = parking.freeSpaces / parking.totalSpaces;
+  
+  // Если парковка уже почти пустая (много свободных мест), считаем что она будет доступна
+  if (currentAvailabilityRatio >= HIGH_AVAILABILITY_THRESHOLD) {
+    return { 
+      willBeAvailable: true, 
+      reason: `На парковке достаточно свободных мест (${parking.freeSpaces})`,
+      expectedFreeSpaces: parking.freeSpaces
+    };
+  }
+  
+  // Если сейчас ночь (период низкой активности), повышаем вероятность доступности
+  if (isNightTime()) {
+    return { 
+      willBeAvailable: true, 
+      reason: 'Ночное время - парковки обычно свободны',
+      expectedFreeSpaces: parking.freeSpaces
+    };
+  }
+  
+  // Рассчитываем примерный час прибытия
+  const now = new Date();
+  const arrivalTime = new Date(now.getTime() + travelTimeMinutes * 60 * 1000);
+  const arrivalHour = arrivalTime.getHours();
+  
+  // Получаем прогноз загруженности парковки на час прибытия
+  const forecast = await getParkingForecastForHour(parking.id, arrivalHour);
+  
+  // Если есть прогноз на час прибытия
+  if (forecast) {
+    // Проверяем, будет ли достаточно мест к моменту прибытия
+    if (forecast.expected_free_spaces >= MINIMUM_FREE_SPACES) {
+      return {
+        willBeAvailable: true,
+        reason: `По прогнозу к ${arrivalHour}:00 будет доступно около ${forecast.expected_free_spaces} мест`,
+        expectedFreeSpaces: forecast.expected_free_spaces
+      };
+    }
+    
+    // Проверяем процент свободных мест
+    const expectedAvailabilityRatio = (forecast.expected_free_spaces / parking.totalSpaces);
+    if (expectedAvailabilityRatio >= COMFORTABLE_FREE_RATIO) {
+      return {
+        willBeAvailable: true,
+        reason: `По прогнозу к ${arrivalHour}:00 будет доступно около ${forecast.expected_free_spaces} мест`,
+        expectedFreeSpaces: forecast.expected_free_spaces
+      };
+    }
+    
+    return {
+      willBeAvailable: false,
+      reason: `По прогнозу к ${arrivalHour}:00 будет мало свободных мест (${forecast.expected_free_spaces})`,
+      expectedFreeSpaces: forecast.expected_free_spaces
+    };
+  }
+  
+  // Если нет прогноза, но сейчас много свободных мест и они не заполнятся так быстро
+  if (parking.freeSpaces > MINIMUM_FREE_SPACES * 2) {
+    return {
+      willBeAvailable: true,
+      reason: `Сейчас на парковке ${parking.freeSpaces} свободных мест`,
+      expectedFreeSpaces: parking.freeSpaces
+    };
+  }
+  
+  // Если ничего не известно точно, делаем вывод на основе текущего состояния
+  return {
+    willBeAvailable: parking.freeSpaces >= MINIMUM_FREE_SPACES,
+    reason: parking.freeSpaces >= MINIMUM_FREE_SPACES 
+      ? `На парковке ${parking.freeSpaces} свободных мест` 
+      : `Мало свободных мест (${parking.freeSpaces})`,
+    expectedFreeSpaces: parking.freeSpaces
+  };
+}
+
+/**
  * Анализирует парковки и дает рекомендации с учетом местоположения пользователя
  */
 export async function getParkingRecommendations(
@@ -132,21 +284,37 @@ export async function getParkingRecommendations(
 
   // Получаем данные о времени в пути
   const routeInfo = await calculateRouteInfo(userLocation, selectedParking);
+  const travelTimeMinutes = routeInfo.travelTimeMinutes;
   
-  // Если на выбранной парковке достаточно мест и время в пути приемлемое
-  if (selectedParking.freeSpaces >= MINIMUM_FREE_SPACES && routeInfo.travelTimeMinutes <= MAX_SAFE_ARRIVAL_TIME) {
-    return {
-      parking: selectedParking,
-      recommendation: 'recommended',
-      reason: `На парковке достаточно свободных мест (${selectedParking.freeSpaces}), время в пути: ${routeInfo.travelTimeMinutes} мин`,
-      travelTime: routeInfo.travelTimeMinutes,
-      availableSpots: selectedParking.freeSpaces
-    };
+  // Предсказываем доступность парковки к моменту прибытия
+  const availabilityPrediction = await predictParkingAvailability(selectedParking, travelTimeMinutes);
+  
+  // Если парковка будет доступна к моменту прибытия - рекомендуем её
+  if (availabilityPrediction.willBeAvailable) {
+    // Если время в пути приемлемое - рекомендуем эту парковку
+    if (travelTimeMinutes <= MAX_SAFE_ARRIVAL_TIME) {
+      return {
+        parking: selectedParking,
+        recommendation: 'recommended',
+        reason: `${availabilityPrediction.reason}, время в пути: ${travelTimeMinutes} мин`,
+        travelTime: travelTimeMinutes,
+        availableSpots: availabilityPrediction.expectedFreeSpaces
+      };
+    }
+    // Если время в пути большое, но парковка будет доступна - всё равно рекомендуем
+    else {
+      return {
+        parking: selectedParking,
+        recommendation: 'recommended',
+        reason: `${availabilityPrediction.reason}, но время в пути большое: ${travelTimeMinutes} мин`,
+        travelTime: travelTimeMinutes,
+        availableSpots: availabilityPrediction.expectedFreeSpaces
+      };
+    }
   }
   
-  // Если на выбранной парковке мало мест или долгое время в пути
-  // Ищем альтернативные варианты
-  const alternativeResults = await findAlternativeParkings(userLocation, selectedParking, nearbyParkings);
+  // Парковка, вероятно, не будет доступна к моменту прибытия - ищем альтернативы
+  const alternativeResults = await findAlternativeParkings(userLocation, selectedParking, nearbyParkings, travelTimeMinutes);
   
   if (alternativeResults.alternatives && alternativeResults.alternatives.length > 0) {
     // Есть альтернативные варианты
@@ -154,21 +322,19 @@ export async function getParkingRecommendations(
       parking: selectedParking,
       recommendation: 'alternative',
       reason: alternativeResults.reason,
-      travelTime: routeInfo.travelTimeMinutes,
-      availableSpots: selectedParking.freeSpaces,
+      travelTime: travelTimeMinutes,
+      availableSpots: availabilityPrediction.expectedFreeSpaces,
       alternatives: alternativeResults.alternatives
     };
   }
   
-  // Нет хороших альтернатив
+  // Нет хороших альтернатив и выбранная парковка не рекомендуется
   return {
     parking: selectedParking,
     recommendation: 'not_recommended',
-    reason: selectedParking.freeSpaces <= CRITICAL_FREE_SPACES 
-      ? `На парковке осталось всего ${selectedParking.freeSpaces} мест, рекомендуем поискать другие варианты`
-      : `Время в пути ${routeInfo.travelTimeMinutes} мин, возможно, не удастся найти место по прибытии`,
-    travelTime: routeInfo.travelTimeMinutes,
-    availableSpots: selectedParking.freeSpaces
+    reason: availabilityPrediction.reason,
+    travelTime: travelTimeMinutes,
+    availableSpots: availabilityPrediction.expectedFreeSpaces
   };
 }
 
@@ -178,7 +344,8 @@ export async function getParkingRecommendations(
 async function findAlternativeParkings(
   userLocation: UserLocation,
   selectedParking: ParkingInfo,
-  allParkings: ParkingInfo[]
+  allParkings: ParkingInfo[],
+  travelTimeToSelected: number
 ): Promise<{ 
   reason: string;
   alternatives?: Array<{
@@ -204,37 +371,67 @@ async function findAlternativeParkings(
   const limitedAlternatives = potentialAlternatives.slice(0, 5);
 
   // Получаем информацию о маршруте для каждой альтернативы
-  const alternativesWithRoutes = await Promise.all(
+  const alternativesData = await Promise.all(
     limitedAlternatives.map(async (parking) => {
       const routeInfo = await calculateRouteInfo(userLocation, parking);
+      
+      // Проверяем прогноз доступности к моменту прибытия
+      const availabilityPrediction = await predictParkingAvailability(
+        parking, 
+        routeInfo.travelTimeMinutes
+      );
+      
       return {
         parking,
         travelTime: routeInfo.travelTimeMinutes,
-        availableSpots: parking.freeSpaces
+        availableSpots: availabilityPrediction.expectedFreeSpaces || parking.freeSpaces,
+        willBeAvailable: availabilityPrediction.willBeAvailable
       };
     })
   );
   
+  // Фильтруем только доступные альтернативы
+  const availableAlternatives = alternativesData.filter(alt => alt.willBeAvailable);
+  
+  if (availableAlternatives.length === 0) {
+    return {
+      reason: 'Нет подходящих альтернативных парковок поблизости',
+    };
+  }
+  
   // Сортируем альтернативы по времени в пути
-  const sortedAlternatives = alternativesWithRoutes
+  const sortedAlternatives = availableAlternatives
     .sort((a, b) => (a.travelTime || 0) - (b.travelTime || 0))
     .slice(0, 3); // Берем только 3 ближайшие альтернативы
+  
+  // Преобразуем в формат для ответа API
+  const alternativesForResponse = sortedAlternatives.map(alt => ({
+    parking: alt.parking,
+    travelTime: alt.travelTime,
+    availableSpots: alt.availableSpots
+  }));
   
   // Выбираем лучшую альтернативу
   const bestAlternative = sortedAlternatives[0];
   
-  if (bestAlternative && bestAlternative.travelTime && bestAlternative.travelTime < MAX_SAFE_ARRIVAL_TIME) {
-    const freeSpaces = selectedParking.freeSpaces || 0;
+  if (bestAlternative && bestAlternative.travelTime) {
+    // Если лучшая альтернатива ближе выбранной парковки
+    if (bestAlternative.travelTime < travelTimeToSelected) {
+      return {
+        reason: `Найдена ближайшая парковка с ${bestAlternative.availableSpots} свободными местами в ${bestAlternative.travelTime} мин от вас`,
+        alternatives: alternativesForResponse
+      };
+    }
+    
+    // Если лучшая альтернатива примерно так же далеко, но с большим числом мест
     return {
-      reason: freeSpaces <= CRITICAL_FREE_SPACES 
-        ? `На выбранной парковке мало мест (${freeSpaces}), рекомендуем альтернативы` 
-        : `Время в пути до выбранной парковки (${freeSpaces} мин), есть варианты ближе`,
-      alternatives: sortedAlternatives
+      reason: `Найдены альтернативные парковки с более высокой доступностью`,
+      alternatives: alternativesForResponse
     };
   }
   
   return {
-    reason: 'Нет подходящих альтернативных парковок поблизости',
-    alternatives: sortedAlternatives
+    reason: 'Есть альтернативные варианты парковки поблизости',
+    alternatives: alternativesForResponse
   };
 } 
