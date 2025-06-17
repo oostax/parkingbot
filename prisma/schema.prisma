@@ -47,7 +47,7 @@ model ParkingStats {
   totalSpaces Int
 }
 
-model DailyStats {
+model daily_stats {
   id              String   @id @default(cuid())
   parkingId       String
   hour            Int
@@ -57,6 +57,7 @@ model DailyStats {
   lastUpdated     DateTime
 
   @@unique([parkingId, hour])
+  @@map("daily_stats")
 }
 
 // Модели для системы геймификации
