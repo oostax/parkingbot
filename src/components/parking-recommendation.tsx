@@ -24,28 +24,38 @@ export default function ParkingRecommendation({
   const [loading, setLoading] = useState<boolean>(true);
   const [showAlternatives, setShowAlternatives] = useState(false);
   const { location, loading: locationLoading, error: locationError, requestLocation } = useTelegramLocation();
+  
+  // Добавляем мемоизацию ID парковки, чтобы отслеживать реальные изменения
+  const [lastProcessedParkingId, setLastProcessedParkingId] = useState<string | null>(null);
 
   useEffect(() => {
     const loadRecommendation = async () => {
-      if (location && parking) {
-        try {
-          setLoading(true);
-          const result = await getParkingRecommendations(location, parking, allParkings);
-          setRecommendation(result);
-        } catch (error) {
-          console.error('Ошибка при получении рекомендаций:', error);
-        } finally {
-          setLoading(false);
-        }
+      // Проверяем, что у нас есть локация и парковка
+      if (!location || !parking || !parking.id) {
+        setLoading(false);
+        return;
+      }
+      
+      // Пропускаем повторную обработку той же самой парковки
+      if (lastProcessedParkingId === parking.id) {
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        const result = await getParkingRecommendations(location, parking, allParkings);
+        setRecommendation(result);
+        setLastProcessedParkingId(parking.id);
+      } catch (error) {
+        console.error('Ошибка при получении рекомендаций:', error);
+      } finally {
+        setLoading(false);
       }
     };
 
-    if (location) {
-      loadRecommendation();
-    } else {
-      setLoading(false);
-    }
-  }, [location, parking, allParkings]);
+    loadRecommendation();
+    // Добавляем только необходимые зависимости: локация, ID парковки и lastProcessedParkingId
+  }, [location, parking?.id, lastProcessedParkingId]);
 
   const handleRequestLocation = async () => {
     await requestLocation();

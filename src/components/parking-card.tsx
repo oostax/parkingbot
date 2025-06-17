@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -33,13 +33,34 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
   const [stats, setStats] = useState<ParkingStats[]>([]);
   const [forecasts, setForecasts] = useState<Forecast[]>([]);
   
+  // Добавляем ref для отслеживания активных запросов
+  const activeRequestsRef = useRef<{[key: string]: boolean}>({});
+  // Добавляем timestamp последнего успешного запроса
+  const lastRequestTimeRef = useRef<{[key: string]: number}>({});
+  // Минимальный интервал между запросами (5 секунд)
+  const MIN_REQUEST_INTERVAL = 5000;
+  
   useEffect(() => {
     let isMounted = true;
     let retryCount = 0;
     const maxRetries = 3;
     
     const fetchRealTimeData = async () => {
+      // Предотвращаем параллельные запросы к одному и тому же эндпоинту
+      if (activeRequestsRef.current['liveData']) {
+        return;
+      }
+      
+      // Проверяем, не слишком ли часто отправляем запросы
+      const lastRequestTime = lastRequestTimeRef.current['liveData'] || 0;
+      const now = Date.now();
+      if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
+        return;
+      }
+      
       setIsLoadingData(true);
+      activeRequestsRef.current['liveData'] = true;
+      
       try {
         // Добавляем параметр noCache и текущее время для предотвращения кэширования
         const timestamp = new Date().getTime();
@@ -68,6 +89,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
             setRealTimeData(null);
           }
           setIsLoadingData(false);
+          lastRequestTimeRef.current['liveData'] = now;
         }
       } catch (error) {
         if (isMounted) {
@@ -87,11 +109,27 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
           setDataAvailable(false);
           setRealTimeData(null);
         }
+      } finally {
+        activeRequestsRef.current['liveData'] = false;
       }
     };
     
     // Функция для загрузки прогнозов
     const fetchForecasts = async () => {
+      // Предотвращаем параллельные запросы
+      if (activeRequestsRef.current['forecasts']) {
+        return;
+      }
+      
+      // Проверяем интервал между запросами
+      const lastRequestTime = lastRequestTimeRef.current['forecasts'] || 0;
+      const now = Date.now();
+      if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
+        return;
+      }
+      
+      activeRequestsRef.current['forecasts'] = true;
+      
       try {
         // Добавляем параметр noCache и текущее время для предотвращения кэширования
         const timestamp = new Date().getTime();
@@ -104,16 +142,33 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
           } else {
             console.log(`No forecasts returned for ${parking.id}`);
           }
+          lastRequestTimeRef.current['forecasts'] = now;
         } else {
           console.error(`Error response from forecast API: ${response.status}`);
         }
       } catch (error) {
         console.error("Error fetching parking forecasts:", error);
+      } finally {
+        activeRequestsRef.current['forecasts'] = false;
       }
     };
     
     // Also fetch stats for historical data
     const fetchStats = async () => {
+      // Предотвращаем параллельные запросы
+      if (activeRequestsRef.current['stats']) {
+        return;
+      }
+      
+      // Проверяем интервал между запросами
+      const lastRequestTime = lastRequestTimeRef.current['stats'] || 0;
+      const now = Date.now();
+      if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
+        return;
+      }
+      
+      activeRequestsRef.current['stats'] = true;
+      
       try {
         // Добавляем параметр noCache и текущее время для предотвращения кэширования
         const timestamp = new Date().getTime();
@@ -132,9 +187,12 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
           });
           
           setStats(completeStats);
+          lastRequestTimeRef.current['stats'] = now;
         }
       } catch (error) {
         console.error("Error fetching parking stats:", error);
+      } finally {
+        activeRequestsRef.current['stats'] = false;
       }
     };
     
@@ -218,8 +276,27 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                     Данные могут быть устаревшими. <button 
                       className="underline hover:text-amber-700"
                       onClick={() => {
+                        // Предотвращаем повторные запросы
+                        if (activeRequestsRef.current['liveData']) {
+                          return;
+                        }
+                        
+                        // Проверяем, не слишком ли часто отправляем запросы
+                        const lastRequestTime = lastRequestTimeRef.current['liveData'] || 0;
+                        const now = Date.now();
+                        if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
+                          toast({
+                            title: "Подождите",
+                            description: "Данные можно обновлять не чаще раза в 5 секунд",
+                            variant: "default",
+                          });
+                          return;
+                        }
+                        
                         setIsLoadingData(true);
                         setIsStaleData(false);
+                        activeRequestsRef.current['liveData'] = true;
+                        
                         setTimeout(() => {
                           getParkingRealTimeData(parking.id)
                             .then(data => {
@@ -236,12 +313,16 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                                 setDataAvailable(false);
                                 setRealTimeData(null);
                               }
+                              lastRequestTimeRef.current['liveData'] = now;
                             })
                             .catch(() => {
                               setDataAvailable(false);
                               setRealTimeData(null);
                             })
-                            .finally(() => setIsLoadingData(false));
+                            .finally(() => {
+                              setIsLoadingData(false);
+                              activeRequestsRef.current['liveData'] = false;
+                            });
                         }, 300);
                       }}
                     >
@@ -299,7 +380,26 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                     variant="outline" 
                     size="sm" 
                     onClick={() => {
+                      // Предотвращаем повторные запросы
+                      if (activeRequestsRef.current['liveData']) {
+                        return;
+                      }
+                      
+                      // Проверяем, не слишком ли часто отправляем запросы
+                      const lastRequestTime = lastRequestTimeRef.current['liveData'] || 0;
+                      const now = Date.now();
+                      if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
+                        toast({
+                          title: "Подождите",
+                          description: "Данные можно обновлять не чаще раза в 5 секунд",
+                          variant: "default",
+                        });
+                        return;
+                      }
+                      
                       setIsLoadingData(true);
+                      activeRequestsRef.current['liveData'] = true;
+                      
                       setTimeout(() => {
                         getParkingRealTimeData(parking.id)
                           .then(data => {
@@ -309,9 +409,13 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                             } else {
                               setDataAvailable(false);
                             }
+                            lastRequestTimeRef.current['liveData'] = now;
                           })
                           .catch(() => setDataAvailable(false))
-                          .finally(() => setIsLoadingData(false));
+                          .finally(() => {
+                            setIsLoadingData(false);
+                            activeRequestsRef.current['liveData'] = false;
+                          });
                       }, 300);
                     }}
                   >
@@ -452,7 +556,26 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                   size="sm"
                   className="mt-2" 
                   onClick={() => {
+                    // Предотвращаем повторные запросы
+                    if (activeRequestsRef.current['forecasts']) {
+                      return;
+                    }
+                    
+                    // Проверяем интервал между запросами
+                    const lastRequestTime = lastRequestTimeRef.current['forecasts'] || 0;
+                    const now = Date.now();
+                    if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
+                      toast({
+                        title: "Подождите",
+                        description: "Данные можно обновлять не чаще раза в 5 секунд",
+                        variant: "default",
+                      });
+                      return;
+                    }
+                    
                     setIsLoadingData(true);
+                    activeRequestsRef.current['forecasts'] = true;
+                    
                     setTimeout(() => {
                       // Прямой запрос для отладки
                       fetch(`/api/parkings/${parking.id}/forecast?noCache=true&t=${Date.now()}`)
@@ -471,11 +594,15 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                           } else {
                             console.warn("No forecasts in response:", data);
                           }
+                          lastRequestTimeRef.current['forecasts'] = now;
                         })
                         .catch(error => {
                           console.error("Error fetching parking forecasts:", error);
                         })
-                        .finally(() => setIsLoadingData(false));
+                        .finally(() => {
+                          setIsLoadingData(false);
+                          activeRequestsRef.current['forecasts'] = false;
+                        });
                     }, 300);
                   }}
                 >

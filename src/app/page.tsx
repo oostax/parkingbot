@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { ParkingInfo } from "@/types/parking";
@@ -59,6 +59,13 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
   const router = useRouter();
+  
+  // Добавляем ref для отслеживания активных запросов
+  const isDataFetchingRef = useRef<boolean>(false);
+  // Добавляем временную метку последнего запроса
+  const lastDataFetchRef = useRef<number>(0);
+  // Минимальный интервал между запросами (3 секунды)
+  const MIN_FETCH_INTERVAL = 3000;
 
   // Check if user has any favorites
   const hasFavorites = useMemo(() => {
@@ -67,8 +74,21 @@ export default function Home() {
 
   // Fetch all parkings from our API
   const fetchParkings = useCallback(async () => {
+    // Предотвращаем параллельные запросы на получение данных
+    if (isDataFetchingRef.current) {
+      return;
+    }
+    
+    // Проверяем, не слишком ли часто делаем запросы
+    const now = Date.now();
+    if (now - lastDataFetchRef.current < MIN_FETCH_INTERVAL) {
+      return;
+    }
+    
     try {
       setIsLoading(true);
+      isDataFetchingRef.current = true;
+      
       const res = await fetch("/api/parkings");
       const data = await res.json();
       
@@ -83,6 +103,8 @@ export default function Home() {
           variant: "destructive",
         });
       }
+      
+      lastDataFetchRef.current = Date.now();
     } catch (error) {
       console.error("Error fetching parkings:", error);
       toast({
@@ -101,6 +123,7 @@ export default function Home() {
       }
     } finally {
       setIsLoading(false);
+      isDataFetchingRef.current = false;
     }
   }, [toast]);
 
@@ -195,11 +218,11 @@ export default function Home() {
   };
 
   // Get selected parking details and switch to map tab
-  const handleParkingSelect = async (parking: ParkingInfo) => {
+  const handleParkingSelect = useCallback(async (parking: ParkingInfo) => {
     setSelectedParking(parking);
     fetchParkingDetails(parking.id);
     setActiveTab("map");
-  };
+  }, []);
 
   // Close parking detail card
   const handleCloseParking = () => {
@@ -214,7 +237,14 @@ export default function Home() {
   // Load parkings on initial render
   useEffect(() => {
     initWebApp(); // Инициализация Telegram WebApp при загрузке
-    fetchParkings();
+    
+    // Устанавливаем начальную метку времени
+    lastDataFetchRef.current = Date.now() - MIN_FETCH_INTERVAL;
+    
+    // Загружаем парковки только если еще не загружены
+    if (parkings.length === 0) {
+      fetchParkings();
+    }
 
     // Обработчик события выбора парковки из компонента рекомендаций
     const handleSelectParking = (event: CustomEvent) => {
@@ -230,7 +260,7 @@ export default function Home() {
     return () => {
       window.removeEventListener('select-parking', handleSelectParking as EventListener);
     };
-  }, [fetchParkings, handleParkingSelect]);
+  }, [fetchParkings, handleParkingSelect, parkings.length]);
 
   return (
     <main className="min-h-screen flex flex-col">

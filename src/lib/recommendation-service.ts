@@ -28,6 +28,16 @@ const MINIMUM_FREE_SPACES = 5; // Минимальное количество с
 const CRITICAL_FREE_SPACES = 2; // Критическое значение свободных мест
 const MAX_SAFE_ARRIVAL_TIME = 20; // Максимальное время в пути (мин) для комфортного прибытия
 
+// Кеш для хранения расчетов маршрутов
+// Ключ: startLat_startLng_endLat_endLng, значение: RouteInfo
+const routeCache: Map<string, RouteInfo> = new Map();
+
+// Время истечения кеша в миллисекундах (10 минут)
+const CACHE_EXPIRATION = 10 * 60 * 1000; 
+
+// Временные метки для кешированных маршрутов
+const routeCacheTimestamps: Map<string, number> = new Map();
+
 /**
  * Рассчитывает примерное время в пути до парковки
  * Использует Yandex Map API для расчета
@@ -39,6 +49,18 @@ export async function calculateRouteInfo(
   try {
     // Получаем долготу из объекта парковки
     const longitude = endLocation.lng ?? endLocation.lon ?? 0;
+    
+    // Создаем ключ для кеша, округляя координаты до 5 знаков после запятой
+    const cacheKey = `${startLocation.latitude.toFixed(5)}_${startLocation.longitude.toFixed(5)}_${endLocation.lat.toFixed(5)}_${longitude.toFixed(5)}`;
+    
+    // Проверяем наличие и актуальность кешированных данных
+    const currentTime = Date.now();
+    if (routeCache.has(cacheKey)) {
+      const cacheTimestamp = routeCacheTimestamps.get(cacheKey) || 0;
+      if (currentTime - cacheTimestamp < CACHE_EXPIRATION) {
+        return routeCache.get(cacheKey)!;
+      }
+    }
 
     // Формируем URL для Yandex Maps API
     const apiUrl = `https://api.routing.yandex.net/v2/route?apikey=${process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY}&waypoints=${startLocation.latitude},${startLocation.longitude}|${endLocation.lat},${longitude}&mode=driving`;
@@ -62,10 +84,16 @@ export async function calculateRouteInfo(
     // Примерное время в пути (средняя скорость 30 км/ч с учетом пробок)
     const travelTimeMinutes = Math.ceil(distanceKm / 30 * 60);
     
-    return {
+    const routeInfo = {
       travelTimeMinutes,
       distanceKm
     };
+    
+    // Сохраняем результат в кеш
+    routeCache.set(cacheKey, routeInfo);
+    routeCacheTimestamps.set(cacheKey, currentTime);
+    
+    return routeInfo;
   } catch (error) {
     console.error('Ошибка расчета маршрута:', error);
     // Возвращаем примерную оценку
@@ -172,9 +200,12 @@ async function findAlternativeParkings(
     };
   }
 
+  // Ограничиваем количество анализируемых альтернатив до 5 для производительности
+  const limitedAlternatives = potentialAlternatives.slice(0, 5);
+
   // Получаем информацию о маршруте для каждой альтернативы
   const alternativesWithRoutes = await Promise.all(
-    potentialAlternatives.map(async (parking) => {
+    limitedAlternatives.map(async (parking) => {
       const routeInfo = await calculateRouteInfo(userLocation, parking);
       return {
         parking,

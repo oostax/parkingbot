@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 // Определение типов для Telegram WebApp API
 declare global {
@@ -35,15 +35,55 @@ interface LocationHookResult {
   requestLocation: () => Promise<TelegramLocationData | null>;
 }
 
+// Ключ для хранения местоположения в sessionStorage
+const LOCATION_STORAGE_KEY = 'telegram_location_data';
+// Время истечения кеша местоположения (5 минут)
+const LOCATION_CACHE_EXPIRY = 5 * 60 * 1000;
+
 export function useTelegramLocation(): LocationHookResult {
   const [location, setLocation] = useState<TelegramLocationData | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Флаг, чтобы предотвратить одновременные запросы
+  const requestInProgressRef = useRef<boolean>(false);
 
   // Проверяем доступность Telegram API
   const isTelegramAvailable = typeof window !== 'undefined' && 
     window.Telegram && 
     window.Telegram.WebApp;
+
+  // Загрузка кешированных данных местоположения
+  useEffect(() => {
+    const loadCachedLocation = () => {
+      try {
+        const cachedData = sessionStorage.getItem(LOCATION_STORAGE_KEY);
+        
+        if (cachedData) {
+          const parsedData = JSON.parse(cachedData);
+          const timestamp = parsedData.timestamp;
+          const now = Date.now();
+          
+          // Проверяем действительность кеша
+          if (timestamp && now - timestamp < LOCATION_CACHE_EXPIRY) {
+            const { latitude, longitude, horizontal_accuracy } = parsedData;
+            setLocation({
+              latitude,
+              longitude,
+              horizontal_accuracy
+            });
+            return true;
+          }
+        }
+      } catch (e) {
+        console.error('Ошибка при чтении кеша местоположения:', e);
+      }
+      return false;
+    };
+    
+    // Пытаемся загрузить из кеша при монтировании
+    loadCachedLocation();
+  }, []);
 
   // Инициализируем Telegram WebApp
   useEffect(() => {
@@ -57,8 +97,26 @@ export function useTelegramLocation(): LocationHookResult {
     }
   }, [isTelegramAvailable]);
 
+  // Функция для сохранения местоположения в кеш
+  const cacheLocation = useCallback((locationData: TelegramLocationData) => {
+    try {
+      const dataToCache = {
+        ...locationData,
+        timestamp: Date.now()
+      };
+      sessionStorage.setItem(LOCATION_STORAGE_KEY, JSON.stringify(dataToCache));
+    } catch (e) {
+      console.error('Ошибка при сохранении местоположения в кеш:', e);
+    }
+  }, []);
+
   // Функция для запроса местоположения
-  const requestLocation = async (): Promise<TelegramLocationData | null> => {
+  const requestLocation = useCallback(async (): Promise<TelegramLocationData | null> => {
+    // Если уже есть в процессе запрос, возвращаем текущее местоположение
+    if (requestInProgressRef.current) {
+      return location;
+    }
+    
     if (!isTelegramAvailable) {
       setError('Telegram API не доступен');
       return null;
@@ -66,6 +124,7 @@ export function useTelegramLocation(): LocationHookResult {
 
     setLoading(true);
     setError(null);
+    requestInProgressRef.current = true;
 
     try {
       // Проверяем статус доступа к геолокации
@@ -86,14 +145,21 @@ export function useTelegramLocation(): LocationHookResult {
         window.Telegram?.WebApp.postEvent('web_app_request_location', {});
         
         window.Telegram?.WebApp.onEvent('location_requested', (event: any) => {
+          requestInProgressRef.current = false;
+          
           if (event.status === 'allowed' && event.location) {
             const locationData: TelegramLocationData = {
               latitude: event.location.latitude,
               longitude: event.location.longitude,
               horizontal_accuracy: event.location.horizontal_accuracy
             };
+            
             setLocation(locationData);
             setLoading(false);
+            
+            // Кешируем полученное местоположение
+            cacheLocation(locationData);
+            
             resolve(locationData);
           } else {
             setError('Доступ к местоположению не предоставлен');
@@ -103,11 +169,12 @@ export function useTelegramLocation(): LocationHookResult {
         });
       });
     } catch (err: any) {
+      requestInProgressRef.current = false;
       setError(err.message || 'Ошибка при получении местоположения');
       setLoading(false);
       return null;
     }
-  };
+  }, [isTelegramAvailable, location, cacheLocation]);
 
   return {
     location,
