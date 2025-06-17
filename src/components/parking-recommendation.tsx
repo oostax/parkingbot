@@ -1,136 +1,106 @@
-"use client";
+'use client';
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, AlertCircle, CheckCircle2, Car, MapPin, Navigation2 } from 'lucide-react';
-import { ParkingInfo, Forecast } from '@/types/parking';
-import { getUserLocation } from '@/lib/telegram-location-utils';
-import { generateRecommendation, ParkingRecommendation } from '@/lib/recommendation-service';
-import { useToast } from '@/hooks/use-toast';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
+import { Card, CardContent } from '@/components/ui/card';
+import { useTelegramLocation } from '@/hooks/use-telegram-location';
+import { getParkingRecommendations } from '@/lib/recommendation-service';
+import { ParkingInfo } from '@/types/parking';
+import { Clock, Car, MapPin, AlertTriangle, ThumbsUp, Map } from 'lucide-react';
+import { Badge } from "@/components/ui/badge";
 
 interface ParkingRecommendationProps {
   parking: ParkingInfo;
   allParkings: ParkingInfo[];
-  forecasts?: Forecast[];
-  onSelectAlternative: (parking: ParkingInfo) => void;
+  onParkingSelect: (parking: ParkingInfo) => void;
 }
 
-export default function ParkingRecommendationComponent({
+export default function ParkingRecommendation({ 
   parking,
   allParkings,
-  forecasts,
-  onSelectAlternative
+  onParkingSelect
 }: ParkingRecommendationProps) {
-  const [loading, setLoading] = useState(true);
-  const [recommendation, setRecommendation] = useState<ParkingRecommendation | null>(null);
-  const [locationError, setLocationError] = useState<string | null>(null);
-  const { toast } = useToast();
+  const [recommendation, setRecommendation] = useState<any>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [showAlternatives, setShowAlternatives] = useState(false);
+  const { location, loading: locationLoading, error: locationError, requestLocation } = useTelegramLocation();
 
-  // Получение местоположения и генерация рекомендации
-  const generateRecommendationForParking = async () => {
-    setLoading(true);
-    setLocationError(null);
-
-    try {
-      // Получение местоположения пользователя
-      const userLocation = await getUserLocation();
-      
-      if (!userLocation) {
-        setLocationError('Невозможно получить ваше местоположение. Разрешите доступ к геопозиции в настройках.');
-        setLoading(false);
-        return;
+  useEffect(() => {
+    const loadRecommendation = async () => {
+      if (location && parking) {
+        try {
+          setLoading(true);
+          const result = await getParkingRecommendations(location, parking, allParkings);
+          setRecommendation(result);
+        } catch (error) {
+          console.error('Ошибка при получении рекомендаций:', error);
+        } finally {
+          setLoading(false);
+        }
       }
+    };
 
-      // Генерация рекомендации
-      const rec = await generateRecommendation(parking, userLocation, allParkings, forecasts);
-      setRecommendation(rec);
-    } catch (error) {
-      console.error('Ошибка при получении рекомендации:', error);
-      setLocationError('Произошла ошибка при формировании рекомендации.');
-      toast({
-        title: 'Ошибка',
-        description: 'Не удалось получить рекомендацию для парковки',
-        variant: 'destructive',
-      });
-    } finally {
+    if (location) {
+      loadRecommendation();
+    } else {
       setLoading(false);
     }
+  }, [location, parking, allParkings]);
+
+  const handleRequestLocation = async () => {
+    await requestLocation();
   };
 
-  // При первой загрузке компонента
-  useEffect(() => {
-    generateRecommendationForParking();
-  }, [parking.id]);
+  if (!parking) {
+    return null;
+  }
 
-  // Функция для построения маршрута к парковке
-  const openRouteToParking = (selectedParking: ParkingInfo) => {
-    const longitude = selectedParking.lng || selectedParking.lon || 37.6156; 
-    window.open(
-      `https://yandex.ru/maps/?rtext=~${selectedParking.lat},${longitude}`,
-      "_blank"
-    );
-  };
-
-  // Функция для отображения иконки и цвета в зависимости от типа рекомендации
-  const getRecommendationIcon = () => {
-    if (!recommendation) return <AlertCircle className="h-6 w-6 text-gray-500" />;
-
-    switch (recommendation.recommendationType) {
-      case 'good':
-        return <CheckCircle2 className="h-6 w-6 text-green-500" />;
-      case 'alternative':
-        return <Car className="h-6 w-6 text-amber-500" />;
-      case 'negative':
-        return <AlertCircle className="h-6 w-6 text-red-500" />;
-      default:
-        return <AlertCircle className="h-6 w-6 text-gray-500" />;
-    }
-  };
-
-  // Отображение цвета фона в зависимости от типа рекомендации
-  const getRecommendationColor = () => {
-    if (!recommendation) return 'bg-gray-50';
-
-    switch (recommendation.recommendationType) {
-      case 'good':
-        return 'bg-green-50';
-      case 'alternative':
-        return 'bg-amber-50';
-      case 'negative':
-        return 'bg-red-50';
-      default:
-        return 'bg-gray-50';
-    }
-  };
-
-  // Если загружается
-  if (loading) {
+  if (loading || locationLoading) {
     return (
-      <Card>
-        <CardContent className="pt-6 flex flex-col items-center justify-center space-y-4">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-          <p className="text-sm text-muted-foreground">Формируем рекомендацию на основе вашего местоположения...</p>
+      <Card className="mt-4">
+        <CardContent className="p-4">
+          <div className="flex flex-col items-center justify-center space-y-2">
+            <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-sm text-gray-500">Анализируем ситуацию...</p>
+          </div>
         </CardContent>
       </Card>
     );
   }
 
-  // Если есть ошибка местоположения
+  if (!location && !locationError) {
+    return (
+      <Card className="mt-4 border-amber-200">
+        <CardContent className="p-4">
+          <div className="flex flex-col items-center justify-center space-y-3">
+            <AlertTriangle className="text-amber-500 h-6 w-6" />
+            <p className="text-sm text-center">Для персонализированных рекомендаций по парковке необходим доступ к вашему местоположению</p>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={handleRequestLocation}
+            >
+              <MapPin className="mr-2 h-4 w-4" /> Предоставить доступ
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (locationError) {
     return (
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col items-center text-center space-y-4 py-4">
-            <AlertCircle className="h-8 w-8 text-red-500" />
-            <div>
-              <h3 className="font-semibold">Не удалось получить местоположение</h3>
-              <p className="text-sm text-muted-foreground mt-1">{locationError}</p>
-            </div>
-            <Button onClick={generateRecommendationForParking}>
-              Попробовать снова
+      <Card className="mt-4 border-rose-200">
+        <CardContent className="p-4">
+          <div className="flex flex-col items-center justify-center space-y-2">
+            <AlertTriangle className="text-rose-500 h-6 w-6" />
+            <p className="text-sm text-center text-rose-700">{locationError}</p>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={handleRequestLocation}
+            >
+              <MapPin className="mr-2 h-4 w-4" /> Попробовать снова
             </Button>
           </div>
         </CardContent>
@@ -138,125 +108,119 @@ export default function ParkingRecommendationComponent({
     );
   }
 
-  // Если нет рекомендации
   if (!recommendation) {
-    return (
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col items-center text-center space-y-4 py-4">
-            <AlertCircle className="h-8 w-8 text-amber-500" />
-            <div>
-              <h3 className="font-semibold">Не удалось сформировать рекомендацию</h3>
-              <p className="text-sm text-muted-foreground mt-1">Пожалуйста, попробуйте обновить данные</p>
-            </div>
-            <Button onClick={generateRecommendationForParking}>
-              Обновить
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return null;
   }
+
+  // Функция для определения стиля и иконки на основе рекомендации
+  const getRecommendationStyle = () => {
+    switch (recommendation.recommendation) {
+      case 'recommended':
+        return {
+          color: 'text-green-600',
+          bgColor: 'bg-green-50',
+          borderColor: 'border-green-200',
+          icon: <ThumbsUp className="text-green-500 h-6 w-6" />
+        };
+      case 'alternative':
+        return {
+          color: 'text-amber-600',
+          bgColor: 'bg-amber-50',
+          borderColor: 'border-amber-200',
+          icon: <Map className="text-amber-500 h-6 w-6" />
+        };
+      case 'not_recommended':
+        return {
+          color: 'text-rose-600',
+          bgColor: 'bg-rose-50',
+          borderColor: 'border-rose-200',
+          icon: <AlertTriangle className="text-rose-500 h-6 w-6" />
+        };
+      default:
+        return {
+          color: 'text-gray-600',
+          bgColor: 'bg-gray-50',
+          borderColor: 'border-gray-200',
+          icon: <AlertTriangle className="text-gray-500 h-6 w-6" />
+        };
+    }
+  };
+
+  const style = getRecommendationStyle();
 
   return (
-    <Card className={getRecommendationColor()}>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-lg flex items-center gap-2">
-          {getRecommendationIcon()}
-          Рекомендация
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="pb-4 space-y-4">
-        <div className="space-y-2">
-          <p className="text-sm">
-            {recommendation.message}
-          </p>
-          
-          <div className="flex flex-wrap gap-2 mt-3">
-            <Badge variant="outline" className="flex items-center gap-1 px-2 py-1">
-              <Car className="h-3 w-3" /> 
-              Свободно мест: {recommendation.estimatedFreeSpacesOnArrival}
-            </Badge>
-            
-            <Badge variant="outline" className="flex items-center gap-1 px-2 py-1">
-              <MapPin className="h-3 w-3" /> 
-              Время в пути: {recommendation.estimatedDriveTimeMinutes} мин
-            </Badge>
+    <Card className={`mt-4 ${style.borderColor}`}>
+      <CardContent className="p-4">
+        <div className={`flex items-start space-x-3 mb-3 ${style.color}`}>
+          {style.icon}
+          <div>
+            <h3 className="font-medium">Рекомендация</h3>
+            <p className="text-sm">{recommendation.reason}</p>
           </div>
         </div>
+        
+        {recommendation.travelTime && (
+          <div className="flex items-center text-sm text-gray-600 mb-2">
+            <Clock className="h-4 w-4 mr-2" />
+            <span>Время в пути: приблизительно {recommendation.travelTime} мин</span>
+          </div>
+        )}
+        
+        {recommendation.availableSpots !== undefined && (
+          <div className="flex items-center text-sm text-gray-600 mb-2">
+            <Car className="h-4 w-4 mr-2" />
+            <span>
+              Свободных мест: {recommendation.availableSpots} из {parking.totalSpaces || '?'}
+            </span>
+          </div>
+        )}
 
-        {/* Альтернативные парковки */}
-        {recommendation.recommendationType === 'alternative' && 
-         recommendation.alternatives && 
-         recommendation.alternatives.length > 0 && (
-          <div className="mt-4 space-y-3">
-            <Separator className="my-2" />
-            <h4 className="text-sm font-medium">Альтернативные парковки поблизости:</h4>
-            
-            <div className="space-y-2">
-              {recommendation.alternatives.map((alt) => (
-                <div key={alt.id} className="bg-white rounded-lg p-3 shadow-sm border border-gray-100">
-                  <div className="flex justify-between items-start">
+        {recommendation.alternatives && recommendation.alternatives.length > 0 && (
+          <div className="mt-3">
+            <div 
+              className="flex items-center text-blue-600 cursor-pointer border-t pt-2"
+              onClick={() => setShowAlternatives(!showAlternatives)}
+            >
+              <Map className="h-4 w-4 mr-2" />
+              <span className="text-sm font-medium">
+                {showAlternatives ? 'Скрыть альтернативы' : 'Показать альтернативные парковки'}
+              </span>
+            </div>
+
+            {showAlternatives && (
+              <div className="space-y-2 mt-2">
+                {recommendation.alternatives.map((alt: any, index: number) => (
+                  <div 
+                    key={index} 
+                    className="border rounded-md p-2 flex justify-between items-center text-sm hover:bg-gray-50 cursor-pointer"
+                    onClick={() => onParkingSelect(alt.parking)}
+                  >
                     <div>
-                      <h5 className="font-medium text-sm">{alt.name}</h5>
-                      <p className="text-xs text-muted-foreground">{alt.street} {alt.house}</p>
-                      
-                      <div className="mt-1">
-                        <Badge variant="secondary" className="text-xs">
-                          Свободно: {alt.freeSpaces}/{alt.totalSpaces}
-                        </Badge>
-                        
-                        {alt.subway && (
-                          <Badge variant="outline" className="ml-1 text-xs">
-                            М {alt.subway}
+                      <p className="font-medium">{alt.parking.name}</p>
+                      <div className="flex items-center text-gray-600 gap-2 mt-1">
+                        <span className="flex items-center">
+                          <Clock className="h-3 w-3 mr-1" />
+                          {alt.travelTime} мин
+                        </span>
+                        <span className="flex items-center">
+                          <Car className="h-3 w-3 mr-1" />
+                          {alt.availableSpots} мест
+                        </span>
+                        {alt.parking.subway && (
+                          <Badge variant="outline" className="text-xs py-0">
+                            M {alt.parking.subway}
                           </Badge>
                         )}
                       </div>
                     </div>
-                    
-                    <div className="flex gap-1">
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => onSelectAlternative(alt)}
-                        title="Подробнее о парковке"
-                      >
-                        Выбрать
-                      </Button>
-                      
-                      <Button 
-                        size="sm"
-                        onClick={() => openRouteToParking(alt)}
-                        title="Построить маршрут" 
-                      >
-                        <Navigation2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    <MapPin className="h-4 w-4 text-blue-500" />
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </CardContent>
-      <CardFooter>
-        <div className="flex w-full gap-2">
-          <Button 
-            variant="outline" 
-            onClick={generateRecommendationForParking}
-            className="flex-1"
-          >
-            Обновить
-          </Button>
-          
-          <Button 
-            onClick={() => openRouteToParking(parking)} 
-            className="flex-1"
-          >
-            <Navigation2 className="mr-2 h-4 w-4" /> Маршрут
-          </Button>
-        </div>
-      </CardFooter>
     </Card>
   );
 } 

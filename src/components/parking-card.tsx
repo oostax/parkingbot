@@ -9,16 +9,16 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Star, MapPin, X, Activity, Heart, HeartOff, Car, Accessibility } from "lucide-react";
 import { getParkingRealTimeData } from "@/lib/parking-utils";
 import { useSession } from "next-auth/react";
-import ParkingRecommendationComponent from "./parking-recommendation";
+import ParkingRecommendation from "./parking-recommendation";
 
 interface ParkingCardProps {
   parking: ParkingInfo;
   onClose: () => void;
   onToggleFavorite: () => void;
-  allParkings?: ParkingInfo[];  // Добавляем список всех парковок для рекомендаций
+  allParkings: ParkingInfo[];
 }
 
-export default function ParkingCard({ parking, onClose, onToggleFavorite, allParkings = [] }: ParkingCardProps) {
+export default function ParkingCard({ parking, onClose, onToggleFavorite, allParkings }: ParkingCardProps) {
   const { data: session } = useSession();
   const { toast } = useToast();
   const [isLoadingData, setIsLoadingData] = useState(true);
@@ -177,24 +177,6 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
     return { bg: "bg-pink-50", text: "text-red-500" };
   };
 
-  // Обработчик выбора альтернативной парковки
-  const handleSelectAlternative = (alternativeParking: ParkingInfo) => {
-    // Здесь мы можем обработать выбор пользователем альтернативной парковки
-    // Например, можно искать эту парковку в общем списке и вызывать onSelectParking
-    const alternativeWithDetails = allParkings.find(p => p.id === alternativeParking.id);
-    if (alternativeWithDetails) {
-      // Закрываем текущую карточку
-      onClose();
-      
-      // Искусственно создаем событие клика по маркеру парковки на карте
-      // Это приведет к показу карточки для выбранной альтернативной парковки
-      const event = new CustomEvent('parking-selected', { 
-        detail: { parking: alternativeWithDetails } 
-      });
-      document.dispatchEvent(event);
-    }
-  };
-
   return (
     <Card className="w-full shadow-lg">
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
@@ -220,7 +202,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
           <TabsList className="w-full grid grid-cols-3">
             <TabsTrigger value="status">Статус</TabsTrigger>
             <TabsTrigger value="forecast">Прогноз</TabsTrigger>
-            <TabsTrigger value="recommendation">Рекомендации</TabsTrigger>
+            <TabsTrigger value="recommendation">Рекомендация</TabsTrigger>
           </TabsList>
           
           <TabsContent value="status" className="space-y-2 pt-2">
@@ -503,13 +485,17 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
             )}
           </TabsContent>
 
-          {/* Новая вкладка с рекомендациями */}
           <TabsContent value="recommendation" className="pt-2">
-            <ParkingRecommendationComponent 
+            <ParkingRecommendation
               parking={parking}
               allParkings={allParkings}
-              forecasts={forecasts}
-              onSelectAlternative={handleSelectAlternative}
+              onParkingSelect={(selectedParking) => {
+                onClose();
+                // Вызов обработчика выбора парковки в родительском компоненте
+                window.dispatchEvent(new CustomEvent('select-parking', { 
+                  detail: { parking: selectedParking } 
+                }));
+              }}
             />
           </TabsContent>
         </Tabs>

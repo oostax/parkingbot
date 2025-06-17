@@ -215,7 +215,22 @@ export default function Home() {
   useEffect(() => {
     initWebApp(); // Инициализация Telegram WebApp при загрузке
     fetchParkings();
-  }, []);
+
+    // Обработчик события выбора парковки из компонента рекомендаций
+    const handleSelectParking = (event: CustomEvent) => {
+      if (event.detail && event.detail.parking) {
+        handleParkingSelect(event.detail.parking);
+      }
+    };
+
+    // Добавляем слушатель события
+    window.addEventListener('select-parking', handleSelectParking as EventListener);
+
+    // Удаляем слушатель при размонтировании
+    return () => {
+      window.removeEventListener('select-parking', handleSelectParking as EventListener);
+    };
+  }, [fetchParkings, handleParkingSelect]);
 
   return (
     <main className="min-h-screen flex flex-col">
@@ -329,7 +344,7 @@ export default function Home() {
                     parking={selectedParking} 
                     onClose={handleCloseParking}
                     onToggleFavorite={() => toggleFavorite(selectedParking)}
-                    allParkings={parkings}
+                    allParkings={filteredParkings}
                   />
                 </div>
               )}

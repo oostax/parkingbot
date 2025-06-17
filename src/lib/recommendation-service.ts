@@ -1,275 +1,209 @@
-import { Forecast, ParkingInfo } from "@/types/parking";
+import { ParkingInfo } from '@/types/parking';
 
-/**
- * Интерфейс для координат пользователя
- */
-export interface UserLocation {
+interface UserLocation {
   latitude: number;
   longitude: number;
 }
 
-/**
- * Интерфейс для рекомендации
- */
-export interface ParkingRecommendation {
+interface RouteInfo {
+  travelTimeMinutes: number;
+  distanceKm: number;
+}
+
+interface ParkingRecommendation {
   parking: ParkingInfo;
-  recommendationType: 'good' | 'alternative' | 'negative';
-  message: string;
-  estimatedDriveTimeMinutes: number;
-  estimatedFreeSpacesOnArrival: number;
-  alternatives?: ParkingInfo[];
+  recommendation: 'recommended' | 'alternative' | 'not_recommended';
+  reason: string;
+  travelTime?: number; // в минутах
+  availableSpots?: number;
+  alternatives?: Array<{
+    parking: ParkingInfo;
+    travelTime?: number;
+    availableSpots?: number;
+  }>;
 }
 
-/**
- * Пороги доступности мест для разных типов рекомендаций
- */
-const AVAILABILITY_THRESHOLDS = {
-  high: 30, // Высокая доступность (более 30% мест свободно)
-  medium: 15, // Средняя доступность (15-30% мест свободно)
-  low: 5, // Низкая доступность (5-15% мест свободно)
-  critical: 5 // Критически мало (менее 5% мест свободно)
-};
+// Пороговые значения для рекомендаций
+const MINIMUM_FREE_SPACES = 5; // Минимальное количество свободных мест для рекомендации
+const CRITICAL_FREE_SPACES = 2; // Критическое значение свободных мест
+const MAX_SAFE_ARRIVAL_TIME = 20; // Максимальное время в пути (мин) для комфортного прибытия
 
 /**
- * Пороговые значения времени в пути для принятия решений
+ * Рассчитывает примерное время в пути до парковки
+ * Использует Yandex Map API для расчета
  */
-const TIME_THRESHOLDS = {
-  short: 15, // Короткая поездка (до 15 минут)
-  medium: 30, // Средняя поездка (15-30 минут)
-  long: 45 // Длинная поездка (более 30 минут)
-};
+export async function calculateRouteInfo(
+  startLocation: UserLocation,
+  endLocation: { lat: number; lng?: number; lon?: number }
+): Promise<RouteInfo> {
+  try {
+    // Получаем долготу из объекта парковки
+    const longitude = endLocation.lng ?? endLocation.lon ?? 0;
 
-/**
- * Расчет расстояния между двумя точками по координатам (формула гаверсинусов)
- */
-export function calculateDistance(
-  lat1: number, 
-  lon1: number, 
-  lat2: number, 
-  lon2: number
-): number {
-  const R = 6371; // Радиус Земли в километрах
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * 
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
+    // Формируем URL для Yandex Maps API
+    const apiUrl = `https://api.routing.yandex.net/v2/route?apikey=${process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY}&waypoints=${startLocation.latitude},${startLocation.longitude}|${endLocation.lat},${longitude}&mode=driving`;
 
-function toRad(value: number): number {
-  return value * Math.PI / 180;
-}
+    // В реальном проекте здесь должен быть запрос к API
+    // Для демонстрации используем упрощенный расчет
+    // Примечание: для полной реализации потребуется API-ключ Яндекс Карт
 
-/**
- * Оценка времени в пути на автомобиле на основе расстояния
- * Примечание: это грубая оценка, не учитывающая пробки и маршруты
- */
-export function estimateDriveTime(distanceKm: number): number {
-  // Предположим среднюю скорость 30 км/ч в городе (с учетом светофоров, пробок и т.д.)
-  const averageSpeedKmh = 30;
-  
-  // Время в минутах
-  return Math.ceil((distanceKm / averageSpeedKmh) * 60);
-}
-
-/**
- * Прогнозирование количества свободных мест к моменту приезда пользователя
- */
-export function estimateFreeSpotsOnArrival(
-  parking: ParkingInfo,
-  driveTimeMinutes: number,
-  forecasts?: Forecast[]
-): number {
-  if (!parking.freeSpaces || !parking.totalSpaces || parking.totalSpaces === 0) {
-    return 0;
-  }
-
-  // Если нет прогнозов, используем простую линейную экстраполяцию
-  if (!forecasts || forecasts.length === 0) {
-    // Предположим, что в час заполняется примерно 10% от общего числа мест (в часы пик)
-    const hourlyOccupancyRate = parking.totalSpaces * 0.1;
-    // Количество часов в пути
-    const travelTimeHours = driveTimeMinutes / 60;
+    // Рассчитываем примерное время в пути, используя упрощенную формулу
+    // Расстояние по прямой между двумя точками
+    const R = 6371; // радиус Земли в км
+    const dLat = (endLocation.lat - startLocation.latitude) * Math.PI / 180;
+    const dLon = (longitude - startLocation.longitude) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(startLocation.latitude * Math.PI / 180) * Math.cos(endLocation.lat * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2); 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    const distanceKm = R * c;
     
-    // Прогнозируемое количество свободных мест при прибытии
-    const estimatedFreeSpots = Math.max(0, Math.floor(parking.freeSpaces - (hourlyOccupancyRate * travelTimeHours)));
-    return estimatedFreeSpots;
-  }
-
-  // Если есть прогнозы, используем их
-  // Определяем, какой прогноз использовать на основе времени в пути
-  const currentTime = new Date();
-  const arrivalTime = new Date(currentTime.getTime() + (driveTimeMinutes * 60 * 1000));
-
-  // Ищем прогноз, ближайший ко времени прибытия
-  let closestForecast = forecasts[0];
-  let minTimeDiff = Infinity;
-
-  for (const forecast of forecasts) {
-    const forecastTime = new Date(forecast.timestamp);
-    const timeDiff = Math.abs(forecastTime.getTime() - arrivalTime.getTime());
+    // Примерное время в пути (средняя скорость 30 км/ч с учетом пробок)
+    const travelTimeMinutes = Math.ceil(distanceKm / 30 * 60);
     
-    if (timeDiff < minTimeDiff) {
-      minTimeDiff = timeDiff;
-      closestForecast = forecast;
-    }
+    return {
+      travelTimeMinutes,
+      distanceKm
+    };
+  } catch (error) {
+    console.error('Ошибка расчета маршрута:', error);
+    // Возвращаем примерную оценку
+    return {
+      travelTimeMinutes: 30, // 30 минут по умолчанию
+      distanceKm: 15 // 15 км по умолчанию
+    };
   }
-
-  return Math.max(0, Math.floor(closestForecast.expected_free_spaces));
 }
 
 /**
- * Проверка, достаточно ли свободных мест на парковке
+ * Анализирует парковки и дает рекомендации с учетом местоположения пользователя
  */
-export function hasEnoughSpaces(parking: ParkingInfo, estimatedFreeSpaces: number): boolean {
-  if (!parking.totalSpaces) return false;
+export async function getParkingRecommendations(
+  userLocation: UserLocation | null,
+  selectedParking: ParkingInfo,
+  nearbyParkings: ParkingInfo[]
+): Promise<ParkingRecommendation> {
+  // Если местоположение пользователя недоступно
+  if (!userLocation) {
+    return {
+      parking: selectedParking,
+      recommendation: 'not_recommended',
+      reason: 'Невозможно дать рекомендацию без доступа к вашему местоположению'
+    };
+  }
+
+  // Если парковка не имеет данных о загруженности
+  if (selectedParking.freeSpaces === undefined || selectedParking.totalSpaces === undefined) {
+    return {
+      parking: selectedParking,
+      recommendation: 'not_recommended',
+      reason: 'Нет данных о загруженности парковки'
+    };
+  }
+
+  // Получаем данные о времени в пути
+  const routeInfo = await calculateRouteInfo(userLocation, selectedParking);
   
-  const freePercentage = (estimatedFreeSpaces / parking.totalSpaces) * 100;
-  return freePercentage >= AVAILABILITY_THRESHOLDS.medium;
-}
-
-/**
- * Поиск ближайших альтернативных парковок с достаточным количеством свободных мест
- */
-export function findNearbyAlternatives(
-  userLocation: UserLocation,
-  currentParking: ParkingInfo,
-  allParkings: ParkingInfo[],
-  maxDistanceKm: number = 5
-): ParkingInfo[] {
-  if (!userLocation) return [];
-
-  // Фильтрация парковок:
-  // 1. Не текущая парковка
-  // 2. В пределах maxDistanceKm от пользователя
-  // 3. С достаточным количеством свободных мест
-  // 4. Только перехватывающие парковки (по типу)
-  return allParkings
-    .filter(parking => 
-      parking.id !== currentParking.id &&
-      parking.type === 'перехватывающая' &&
-      parking.freeSpaces && 
-      parking.totalSpaces &&
-      (parking.freeSpaces / parking.totalSpaces) >= (AVAILABILITY_THRESHOLDS.medium / 100) &&
-      calculateDistance(
-        userLocation.latitude, 
-        userLocation.longitude,
-        parking.lat,
-        parking.lng || parking.lon || 0
-      ) <= maxDistanceKm
-    )
-    .sort((a, b) => {
-      // Сортировка по расстоянию от пользователя
-      const distA = calculateDistance(
-        userLocation.latitude, 
-        userLocation.longitude,
-        a.lat,
-        a.lng || a.lon || 0
-      );
-      const distB = calculateDistance(
-        userLocation.latitude, 
-        userLocation.longitude,
-        b.lat,
-        b.lng || b.lon || 0
-      );
-      return distA - distB;
-    })
-    .slice(0, 3); // Возвращаем максимум 3 альтернативы
-}
-
-/**
- * Формирование рекомендации для пользователя
- */
-export async function generateRecommendation(
-  parking: ParkingInfo,
-  userLocation: UserLocation,
-  allParkings: ParkingInfo[],
-  forecasts?: Forecast[]
-): Promise<ParkingRecommendation | null> {
-  if (!parking || !userLocation || !parking.totalSpaces || !parking.freeSpaces) {
-    return null;
+  // Если на выбранной парковке достаточно мест и время в пути приемлемое
+  if (selectedParking.freeSpaces >= MINIMUM_FREE_SPACES && routeInfo.travelTimeMinutes <= MAX_SAFE_ARRIVAL_TIME) {
+    return {
+      parking: selectedParking,
+      recommendation: 'recommended',
+      reason: `На парковке достаточно свободных мест (${selectedParking.freeSpaces}), время в пути: ${routeInfo.travelTimeMinutes} мин`,
+      travelTime: routeInfo.travelTimeMinutes,
+      availableSpots: selectedParking.freeSpaces
+    };
   }
+  
+  // Если на выбранной парковке мало мест или долгое время в пути
+  // Ищем альтернативные варианты
+  const alternativeResults = await findAlternativeParkings(userLocation, selectedParking, nearbyParkings);
+  
+  if (alternativeResults.alternatives && alternativeResults.alternatives.length > 0) {
+    // Есть альтернативные варианты
+    return {
+      parking: selectedParking,
+      recommendation: 'alternative',
+      reason: alternativeResults.reason,
+      travelTime: routeInfo.travelTimeMinutes,
+      availableSpots: selectedParking.freeSpaces,
+      alternatives: alternativeResults.alternatives
+    };
+  }
+  
+  // Нет хороших альтернатив
+  return {
+    parking: selectedParking,
+    recommendation: 'not_recommended',
+    reason: selectedParking.freeSpaces <= CRITICAL_FREE_SPACES 
+      ? `На парковке осталось всего ${selectedParking.freeSpaces} мест, рекомендуем поискать другие варианты`
+      : `Время в пути ${routeInfo.travelTimeMinutes} мин, возможно, не удастся найти место по прибытии`,
+    travelTime: routeInfo.travelTimeMinutes,
+    availableSpots: selectedParking.freeSpaces
+  };
+}
 
-  // Расстояние от пользователя до парковки
-  const distanceKm = calculateDistance(
-    userLocation.latitude,
-    userLocation.longitude,
-    parking.lat,
-    parking.lng || parking.lon || 0
+/**
+ * Поиск альтернативных парковок с лучшими условиями
+ */
+async function findAlternativeParkings(
+  userLocation: UserLocation,
+  selectedParking: ParkingInfo,
+  allParkings: ParkingInfo[]
+): Promise<{ 
+  reason: string;
+  alternatives?: Array<{
+    parking: ParkingInfo;
+    travelTime?: number;
+    availableSpots?: number;
+  }> 
+}> {
+  // Фильтруем парковки - исключаем выбранную и те, что не имеют данных о свободных местах
+  const potentialAlternatives = allParkings.filter(parking => 
+    parking.id !== selectedParking.id && 
+    parking.freeSpaces !== undefined && 
+    parking.freeSpaces >= MINIMUM_FREE_SPACES
   );
-
-  // Оценка времени в пути
-  const driveTimeMinutes = estimateDriveTime(distanceKm);
-
-  // Оценка свободных мест к моменту прибытия
-  const estimatedFreeSpaces = estimateFreeSpotsOnArrival(parking, driveTimeMinutes, forecasts);
   
-  // Процент свободных мест от общего количества
-  const freePercentage = (estimatedFreeSpaces / parking.totalSpaces) * 100;
-
-  // Формируем рекомендацию на основе прогноза
-  if (freePercentage >= AVAILABILITY_THRESHOLDS.high) {
+  if (potentialAlternatives.length === 0) {
     return {
-      parking,
-      recommendationType: 'good',
-      message: `На этой парковке будет достаточно мест (примерно ${estimatedFreeSpaces}) через ${driveTimeMinutes} минут, когда вы доедете.`,
-      estimatedDriveTimeMinutes: driveTimeMinutes,
-      estimatedFreeSpacesOnArrival: estimatedFreeSpaces
+      reason: 'Подходящих альтернативных парковок не найдено'
     };
-  } else if (freePercentage >= AVAILABILITY_THRESHOLDS.medium) {
-    return {
-      parking,
-      recommendationType: 'good',
-      message: `На этой парковке должны остаться свободные места (примерно ${estimatedFreeSpaces}) к вашему приезду через ${driveTimeMinutes} минут.`,
-      estimatedDriveTimeMinutes: driveTimeMinutes,
-      estimatedFreeSpacesOnArrival: estimatedFreeSpaces
-    };
-  } else if (freePercentage >= AVAILABILITY_THRESHOLDS.low) {
-    // Ищем альтернативы
-    const alternatives = findNearbyAlternatives(userLocation, parking, allParkings);
-    
-    if (alternatives.length > 0) {
-      return {
-        parking,
-        recommendationType: 'alternative',
-        message: `На этой парковке мало свободных мест (${estimatedFreeSpaces}). Рекомендуем рассмотреть близлежащие альтернативы.`,
-        estimatedDriveTimeMinutes: driveTimeMinutes,
-        estimatedFreeSpacesOnArrival: estimatedFreeSpaces,
-        alternatives
-      };
-    } else {
-      return {
-        parking,
-        recommendationType: 'negative',
-        message: `На этой парковке мало свободных мест (${estimatedFreeSpaces}), а поблизости нет альтернативных перехватывающих парковок.`,
-        estimatedDriveTimeMinutes: driveTimeMinutes,
-        estimatedFreeSpacesOnArrival: estimatedFreeSpaces
-      };
-    }
-  } else {
-    // Критически мало мест или их нет
-    const alternatives = findNearbyAlternatives(userLocation, parking, allParkings);
-    
-    if (alternatives.length > 0) {
-      return {
-        parking,
-        recommendationType: 'alternative',
-        message: `На этой парковке скорее всего не будет свободных мест к вашему прибытию. Рекомендуем рассмотреть близлежащие альтернативы.`,
-        estimatedDriveTimeMinutes: driveTimeMinutes,
-        estimatedFreeSpacesOnArrival: estimatedFreeSpaces,
-        alternatives
-      };
-    } else {
-      return {
-        parking,
-        recommendationType: 'negative',
-        message: `На этой парковке скорее всего не будет свободных мест, а поблизости нет альтернативных перехватывающих парковок. Рекомендуем искать другие варианты.`,
-        estimatedDriveTimeMinutes: driveTimeMinutes,
-        estimatedFreeSpacesOnArrival: estimatedFreeSpaces
-      };
-    }
   }
+
+  // Получаем информацию о маршруте для каждой альтернативы
+  const alternativesWithRoutes = await Promise.all(
+    potentialAlternatives.map(async (parking) => {
+      const routeInfo = await calculateRouteInfo(userLocation, parking);
+      return {
+        parking,
+        travelTime: routeInfo.travelTimeMinutes,
+        availableSpots: parking.freeSpaces
+      };
+    })
+  );
+  
+  // Сортируем альтернативы по времени в пути
+  const sortedAlternatives = alternativesWithRoutes
+    .sort((a, b) => (a.travelTime || 0) - (b.travelTime || 0))
+    .slice(0, 3); // Берем только 3 ближайшие альтернативы
+  
+  // Выбираем лучшую альтернативу
+  const bestAlternative = sortedAlternatives[0];
+  
+  if (bestAlternative && bestAlternative.travelTime && bestAlternative.travelTime < MAX_SAFE_ARRIVAL_TIME) {
+    const freeSpaces = selectedParking.freeSpaces || 0;
+    return {
+      reason: freeSpaces <= CRITICAL_FREE_SPACES 
+        ? `На выбранной парковке мало мест (${freeSpaces}), рекомендуем альтернативы` 
+        : `Время в пути до выбранной парковки (${freeSpaces} мин), есть варианты ближе`,
+      alternatives: sortedAlternatives
+    };
+  }
+  
+  return {
+    reason: 'Нет подходящих альтернативных парковок поблизости',
+    alternatives: sortedAlternatives
+  };
 } 
