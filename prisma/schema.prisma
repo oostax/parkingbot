@@ -1,4 +1,4 @@
- // This is your Prisma schema file,
+// This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
@@ -6,8 +6,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
 model User {
@@ -18,6 +18,15 @@ model User {
   favorites  Favorite[]
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
+  email      String?    @unique
+  image      String?
+  telegramId String?
+  
+  // Связи с моделями геймификации
+  userProfile    UserProfile?
+  achievements   Achievement[]
+  transactions   TokenTransaction[]
+  districts      UserDistrict[]
 }
 
 model Favorite {
@@ -48,4 +57,79 @@ model DailyStats {
   lastUpdated     DateTime
 
   @@unique([parkingId, hour])
+}
+
+// Модели для системы геймификации
+
+model UserProfile {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  tokenBalance         Int      @default(0)
+  status               String   @default("Regular") // Regular, Silver, Gold, Platinum
+  carModel             String?
+  district             String?
+  lastLoginAt          DateTime @default(now())
+  totalParksVisited    Int      @default(0)
+  uniqueParksVisited   Int      @default(0)
+  consecutiveLoginDays Int      @default(1)
+  totalTokensEarned    Int      @default(0)
+  totalTokensSpent     Int      @default(0)
+  referralsCount       Int      @default(0)
+  challengesCompleted  Int      @default(0)
+  user                 User     @relation(fields: [userId], references: [id])
+}
+
+// Модель для хранения посещенных районов (вместо массива в UserProfile)
+model UserDistrict {
+  id        String @id @default(cuid())
+  userId    String
+  district  String
+  user      User   @relation(fields: [userId], references: [id])
+  
+  @@unique([userId, district])
+}
+
+model Achievement {
+  id           String    @id @default(cuid())
+  userId       String
+  achievementId String
+  earned       Boolean   @default(false)
+  earnedAt     DateTime?
+  user         User      @relation(fields: [userId], references: [id])
+
+  @@unique([userId, achievementId])
+}
+
+model TokenTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  amount      Int
+  type        String   // DAILY_LOGIN, ACHIEVEMENT, WHEEL_SPIN, etc.
+  description String
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model Challenge {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  reward      Int
+  startDate   DateTime
+  endDate     DateTime
+  isActive    Boolean  @default(true)
+  type        String   // DAILY, WEEKLY, ONE_TIME
+  requirement Int      // Требуемое количество для выполнения
+  completions ChallengeCompletion[]
+}
+
+// Модель для хранения выполненных челленджей (вместо массива в Challenge)
+model ChallengeCompletion {
+  id          String   @id @default(cuid())
+  challengeId String
+  userId      String
+  completedAt DateTime @default(now())
+  challenge   Challenge @relation(fields: [challengeId], references: [id])
+  
+  @@unique([challengeId, userId])
 } 
