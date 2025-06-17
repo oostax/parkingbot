@@ -39,6 +39,26 @@ try {
   // Устанавливаем права доступа на директорию prisma
   console.log('Устанавливаем права доступа на директорию prisma...');
   execSync(`chmod 777 ${prismaDir}`, { stdio: 'inherit' });
+  
+  // Устанавливаем права доступа на родительскую директорию
+  console.log('Устанавливаем права доступа на родительскую директорию...');
+  execSync(`chmod 777 ${process.cwd()}`, { stdio: 'inherit' });
+  
+  // Проверяем владельца процесса и устанавливаем соответствующие права
+  console.log('Устанавливаем владельца файла базы данных...');
+  execSync(`chown -R $(whoami):$(whoami) ${prismaDir}`, { stdio: 'inherit' });
+  execSync(`chown $(whoami):$(whoami) ${dbPath}`, { stdio: 'inherit' });
+  
+  // Проверяем, что файл базы данных доступен для записи
+  console.log('Проверяем доступ к файлу базы данных...');
+  try {
+    fs.accessSync(dbPath, fs.constants.R_OK | fs.constants.W_OK);
+    console.log('Файл базы данных доступен для чтения и записи');
+  } catch (err) {
+    console.error('Файл базы данных недоступен для чтения и записи:', err);
+    console.log('Пытаемся исправить права доступа...');
+    execSync(`chmod 777 ${dbPath}`, { stdio: 'inherit' });
+  }
 
   // Инициализируем базу данных с помощью Prisma
   console.log('Инициализируем базу данных с помощью Prisma...');
@@ -61,7 +81,41 @@ try {
     }
   }
   
-  execSync('npx prisma db push --force-reset', { stdio: 'inherit' });
+  // Создаем директорию node_modules/@prisma если она не существует
+  const prismaDirNodeModules = path.resolve(process.cwd(), 'node_modules/@prisma');
+  if (!fs.existsSync(prismaDirNodeModules)) {
+    console.log('Директория node_modules/@prisma не существует, создаем...');
+    fs.mkdirSync(prismaDirNodeModules, { recursive: true });
+  }
+  
+  // Устанавливаем права доступа на директорию node_modules/@prisma
+  console.log('Устанавливаем права доступа на директорию node_modules/@prisma...');
+  execSync(`chmod -R 777 ${path.resolve(process.cwd(), 'node_modules')}`, { stdio: 'inherit' });
+  
+  // Проверяем наличие директории .next и устанавливаем права доступа
+  const nextDir = path.resolve(process.cwd(), '.next');
+  if (fs.existsSync(nextDir)) {
+    console.log('Устанавливаем права доступа на директорию .next...');
+    execSync(`chmod -R 777 ${nextDir}`, { stdio: 'inherit' });
+  }
+  
+  // Пересоздаем базу данных
+  console.log('Пересоздаем базу данных...');
+  try {
+    execSync('npx prisma db push --force-reset', { stdio: 'inherit' });
+  } catch (error) {
+    console.error('Ошибка при пересоздании базы данных:', error);
+    console.log('Пробуем альтернативный метод...');
+    
+    // Удаляем файл базы данных и создаем заново
+    fs.unlinkSync(dbPath);
+    fs.writeFileSync(dbPath, '', 'utf8');
+    execSync(`chmod 777 ${dbPath}`, { stdio: 'inherit' });
+    execSync(`chown $(whoami):$(whoami) ${dbPath}`, { stdio: 'inherit' });
+    
+    // Пробуем снова
+    execSync('npx prisma db push --force-reset', { stdio: 'inherit' });
+  }
 
   // Генерируем клиент Prisma
   console.log('Генерируем клиент Prisma...');
