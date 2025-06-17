@@ -5,63 +5,17 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Challenge } from "@/types/gamification";
-import { Calendar, MapPin, Car, Coins } from "lucide-react";
+import { Calendar, MapPin, Car, Coins, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-
-// Временные данные для демонстрации
-const mockChallenges: Challenge[] = [
-  {
-    id: "1",
-    title: "Исследователь района",
-    description: "Посетите 5 разных парковок в Центральном районе",
-    imageUrl: "/challenges/district-explorer.svg",
-    tokenReward: 50,
-    startDate: new Date("2023-06-01"),
-    endDate: new Date("2023-06-30"),
-    type: "visit_parks",
-    requirements: {
-      count: 5,
-      districtIds: ["central"]
-    }
-  },
-  {
-    id: "2",
-    title: "Неделя активности",
-    description: "Используйте приложение 7 дней подряд",
-    imageUrl: "/challenges/weekly-streak.svg",
-    tokenReward: 30,
-    startDate: new Date("2023-06-01"),
-    endDate: new Date("2023-06-30"),
-    type: "daily_login",
-    requirements: {
-      count: 7
-    }
-  },
-  {
-    id: "3",
-    title: "Пригласите друзей",
-    description: "Пригласите 3 друзей воспользоваться приложением",
-    imageUrl: "/challenges/invite-friends.svg",
-    tokenReward: 100,
-    startDate: new Date("2023-06-01"),
-    endDate: new Date("2023-06-30"),
-    type: "invite_friends",
-    requirements: {
-      count: 3
-    }
-  }
-];
 
 interface ChallengeCardProps {
   challenge: Challenge;
-  progress?: number;
-  currentProgress?: number;
   onParticipate?: (challengeId: string) => void;
 }
 
-function ChallengeCard({ challenge, progress = 0, currentProgress = 0, onParticipate }: ChallengeCardProps) {
+function ChallengeCard({ challenge, onParticipate }: ChallengeCardProps) {
   const { toast } = useToast();
-  const daysLeft = Math.ceil((challenge.endDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+  const daysLeft = Math.ceil((new Date(challenge.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
   
   const getChallengeIcon = () => {
     switch (challenge.type) {
@@ -88,9 +42,9 @@ function ChallengeCard({ challenge, progress = 0, currentProgress = 0, onPartici
       <CardContent className="pb-2">
         <div className="flex justify-between text-sm mb-1">
           <span className="text-muted-foreground">Прогресс</span>
-          <span>{currentProgress} / {challenge.requirements.count}</span>
+          <span>{Math.round((challenge.progress || 0) * challenge.requirements.count! / 100)} / {challenge.requirements.count}</span>
         </div>
-        <Progress value={progress} className="h-2" />
+        <Progress value={challenge.progress || 0} className="h-2" />
         
         <div className="flex justify-between items-center mt-4">
           <div className="text-xs text-muted-foreground">
@@ -102,7 +56,7 @@ function ChallengeCard({ challenge, progress = 0, currentProgress = 0, onPartici
           </div>
         </div>
       </CardContent>
-      <CardFooter className="pt-0">
+      <CardFooter>
         <Button 
           variant="outline" 
           size="sm" 
@@ -132,23 +86,33 @@ interface ChallengesProps {
 
 export default function Challenges({ userId }: ChallengesProps) {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
-  const [userProgress, setUserProgress] = useState<{[challengeId: string]: {progress: number, currentProgress: number}}>({});
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
   
   useEffect(() => {
-    // В реальном приложении здесь будет запрос к API
-    setTimeout(() => {
-      setChallenges(mockChallenges);
-      // Имитация прогресса пользователя
-      setUserProgress({
-        "1": { progress: 40, currentProgress: 2 },
-        "2": { progress: 71, currentProgress: 5 },
-        "3": { progress: 0, currentProgress: 0 }
-      });
-      setIsLoading(false);
-    }, 500);
-  }, []);
+    setIsLoading(true);
+    fetch('/api/gamification/challenges')
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`Error fetching challenges: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then(data => {
+        if (data.challenges) {
+          setChallenges(data.challenges);
+        }
+      })
+      .catch(err => {
+        console.error("Error loading challenges:", err);
+        toast({
+          title: "Ошибка загрузки челленджей",
+          description: "Не удалось загрузить еженедельные челленджи",
+          variant: "destructive",
+        });
+      })
+      .finally(() => setIsLoading(false));
+  }, [toast]);
   
   const handleParticipate = (challengeId: string) => {
     toast({
@@ -161,7 +125,18 @@ export default function Challenges({ userId }: ChallengesProps) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <div className="flex flex-col items-center">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+          <p className="mt-4 text-sm text-muted-foreground">Загрузка челленджей...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  if (challenges.length === 0) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-muted-foreground">Нет активных челленджей на данный момент</p>
       </div>
     );
   }
@@ -174,8 +149,6 @@ export default function Challenges({ userId }: ChallengesProps) {
           <ChallengeCard 
             key={challenge.id} 
             challenge={challenge}
-            progress={userProgress[challenge.id]?.progress || 0}
-            currentProgress={userProgress[challenge.id]?.currentProgress || 0}
             onParticipate={handleParticipate}
           />
         ))}

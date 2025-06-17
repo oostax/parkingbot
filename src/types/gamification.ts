@@ -63,6 +63,7 @@ export interface Challenge {
     parkIds?: string[]; // Список ID парковок для посещения
     districtIds?: string[]; // Список районов для посещения
   };
+  progress?: number; // Процент выполнения (0-100)
 }
 
 export interface WheelPrize {
@@ -76,11 +77,12 @@ export interface WheelPrize {
 }
 
 export interface LeaderboardEntry {
-  position: number;
-  userId: string;
-  displayName: string; // Может быть анонимизировано (последние 3 символа username)
+  id: string;
+  rank: number;
+  displayName: string;
   avatarUrl?: string;
-  score: number; // Количество токенов или другой показатель
+  score: number;
+  isCurrentUser: boolean;
   status: UserStatus;
 }
 
