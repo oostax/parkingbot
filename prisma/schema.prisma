@@ -10,41 +10,34 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id         String     @id 
-  username   String?
-  firstName  String?
-  lastName   String?
-  favorites  Favorite[]
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-  email      String?    @unique
-  image      String?
-  telegramId String?
-  
-  // Связи с моделями геймификации
-  userProfile    UserProfile?
-  achievements   Achievement[]
-  transactions   TokenTransaction[]
-  districts      UserDistrict[]
+// Определяем модели в соответствии с существующими таблицами в bot_database.db
+
+model favorites {
+  id         Int      @id @default(autoincrement())
+  user_id    String
+  parking_id String
+  timestamp  DateTime @default(now())
+
+  @@unique([user_id, parking_id])
 }
 
-model Favorite {
-  id          String   @id @default(cuid())
-  userId      String
-  parkingId   String
-  createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id])
-
-  @@unique([userId, parkingId])
+model parking_stats {
+  id           Int      @id @default(autoincrement())
+  parking_id   String
+  timestamp    DateTime
+  free_spaces  Int
+  total_spaces Int
 }
 
-model ParkingStats {
-  id          String   @id @default(cuid())
-  parkingId   String
-  timestamp   DateTime @default(now())
-  freeSpaces  Int
-  totalSpaces Int
+model hourly_parking_data {
+  id           Int      @id @default(autoincrement())
+  parking_id   String
+  hour         Int
+  free_spaces  Int
+  total_spaces Int
+  date_updated DateTime
+
+  @@unique([parking_id, hour])
 }
 
 model daily_stats {
@@ -59,7 +52,25 @@ model daily_stats {
   @@unique([parkingId, hour])
 }
 
-// Модели для системы геймификации
+// Добавляем модели для аутентификации и геймификации, которые будут созданы при следующем prisma db push
+
+model User {
+  id         String     @id 
+  username   String?
+  firstName  String?
+  lastName   String?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  email      String?    @unique
+  image      String?
+  telegramId String?
+  
+  // Связи с моделями геймификации
+  userProfile    UserProfile?
+  achievements   Achievement[]
+  transactions   TokenTransaction[]
+  districts      UserDistrict[]
+}
 
 model UserProfile {
   id                   String   @id @default(cuid())
@@ -79,7 +90,7 @@ model UserProfile {
   user                 User     @relation(fields: [userId], references: [id])
 }
 
-// Модель для хранения посещенных районов (вместо массива в UserProfile)
+// Модель для хранения посещенных районов
 model UserDistrict {
   id        String @id @default(cuid())
   userId    String
@@ -123,7 +134,7 @@ model Challenge {
   completions ChallengeCompletion[]
 }
 
-// Модель для хранения выполненных челленджей (вместо массива в Challenge)
+// Модель для хранения выполненных челленджей
 model ChallengeCompletion {
   id          String   @id @default(cuid())
   challengeId String

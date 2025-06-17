@@ -19,16 +19,16 @@ export async function GET(request: NextRequest) {
     // If user is logged in, fetch their favorites
     let favorites: string[] = [];
     if (session?.user?.id) {
-      const userFavorites = await prisma.favorite.findMany({
+      const userFavorites = await prisma.favorites.findMany({
         where: {
-          userId: session.user.id,
+          user_id: session.user.id,
         },
         select: {
-          parkingId: true,
+          parking_id: true,
         },
       });
       
-      favorites = userFavorites.map((fav) => fav.parkingId);
+      favorites = userFavorites.map((fav) => fav.parking_id);
     }
     
     // Add favorite flag to each parking

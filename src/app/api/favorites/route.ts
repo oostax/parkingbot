@@ -27,8 +27,8 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const favorites = await prisma.favorite.findMany({
-      where: { userId },
+    const favorites = await prisma.favorites.findMany({
+      where: { user_id: userId },
     });
 
     // Get all parkings from JSON 
@@ -36,10 +36,13 @@ export async function GET() {
     
     // Merge favorite parking IDs with full parking data
     const favoritesParkings = favorites.map(favorite => {
-      const parkingData = parkingList.find((p: ParkingInfo) => p.id === favorite.parkingId);
+      const parkingData = parkingList.find((p: ParkingInfo) => p.id === favorite.parking_id);
       return {
         ...favorite,
-        parking: parkingData || { id: favorite.parkingId },
+        parking: parkingData || { id: favorite.parking_id },
+        // Для совместимости с существующим кодом
+        parkingId: favorite.parking_id,
+        userId: favorite.user_id
       };
     });
 
@@ -74,14 +77,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Create favorite
-    const favorite = await prisma.favorite.create({
+    const favorite = await prisma.favorites.create({
       data: {
-        userId,
-        parkingId,
+        user_id: userId,
+        parking_id: parkingId,
       },
     });
 
-    return NextResponse.json(favorite);
+    // Для совместимости с существующим кодом
+    return NextResponse.json({
+      ...favorite,
+      parkingId: favorite.parking_id,
+      userId: favorite.user_id
+    });
   } catch (error) {
     console.error("Error creating favorite:", error);
     return NextResponse.json({ error: "Failed to create favorite" }, { status: 500 });
@@ -103,15 +111,21 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Parking ID is required" }, { status: 400 });
     }
 
-    // Delete favorite
-    await prisma.favorite.delete({
+    // Delete favorite - используем findFirst для поиска записи по составному ключу
+    const favorite = await prisma.favorites.findFirst({
       where: {
-        userId_parkingId: {
-          userId,
-          parkingId,
-        },
+        user_id: userId,
+        parking_id: parkingId,
       },
     });
+
+    if (favorite) {
+      await prisma.favorites.delete({
+        where: {
+          id: favorite.id,
+        },
+      });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

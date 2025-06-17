@@ -133,10 +133,10 @@ export async function GET(
     // Finally, check if this parking is in the user's favorites
     let isFavorite = false;
     if (session?.user?.id) {
-      const favorite = await prisma.favorite.findFirst({
+      const favorite = await prisma.favorites.findFirst({
         where: {
-          userId: session.user.id,
-          parkingId,
+          user_id: session.user.id,
+          parking_id: parkingId,
         },
       });
       isFavorite = !!favorite;

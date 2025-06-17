@@ -18,8 +18,8 @@ export async function GET(
 
     const userId = session.user.id;
     
-    const count = await prisma.favorite.count({
-      where: { userId }
+    const count = await prisma.favorites.count({
+      where: { user_id: userId }
     });
 
     return NextResponse.json({ count });
