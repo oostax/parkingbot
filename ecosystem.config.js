@@ -17,7 +17,7 @@ module.exports = {
       args: 'run bot',
       env: {
         NODE_ENV: 'production',
-        TELEGRAM_BOT_TOKEN: '7043413169:AAH51LTw3bfREkioI_UhYTiXUJ3ywhacDHU',
+        TELEGRAM_BOT_TOKEN: '7043413169:AAFLuLBvDqxCWh2dS-jndfiD5s-OHRs6s1A',
         NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: 'mosmetroparkingbot',
         DATABASE_URL: 'postgresql://neondb_owner:npg_SPEJ0XC3qmNW@ep-withered-cloud-a24cpnbc-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require'
       },
