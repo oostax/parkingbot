@@ -7,7 +7,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = "file:../pb/bot_database.db"
 }
 
 // Определяем модели в соответствии с существующими таблицами в bot_database.db

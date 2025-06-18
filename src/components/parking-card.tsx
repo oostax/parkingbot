@@ -116,38 +116,35 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
     
     // Функция для загрузки прогнозов
     const fetchForecasts = async () => {
-      // Предотвращаем параллельные запросы
       if (activeRequestsRef.current['forecasts']) {
         return;
       }
       
-      // Проверяем интервал между запросами
-      const lastRequestTime = lastRequestTimeRef.current['forecasts'] || 0;
-      const now = Date.now();
-      if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
-        return;
-      }
-      
+      // Добавляем noCache для обхода кэширования и получения актуальных данных
+      const timestamp = new Date().getTime();
       activeRequestsRef.current['forecasts'] = true;
       
       try {
-        // Добавляем параметр noCache и текущее время для предотвращения кэширования
-        const timestamp = new Date().getTime();
         const response = await fetch(`/api/parkings/${parking.id}/forecast?noCache=true&t=${timestamp}`);
-        if (response.ok && isMounted) {
+        if (response.ok) {
           const data = await response.json();
           if (data.forecasts && data.forecasts.length > 0) {
-            console.log(`Loaded forecasts for ${parking.id}:`, data.forecasts.length, data.forecasts[0]);
+            console.log(`Получены прогнозы для парковки ${parking.id}:`, data.forecasts.length);
             setForecasts(data.forecasts);
+            
+            // Отладочная информация о метаданных
+            if (data.meta) {
+              console.log("Метаданные прогноза:", data.meta);
+            }
           } else {
-            console.log(`No forecasts returned for ${parking.id}`);
+            console.log(`Нет прогнозов для парковки ${parking.id}`);
           }
-          lastRequestTimeRef.current['forecasts'] = now;
+          lastRequestTimeRef.current['forecasts'] = Date.now();
         } else {
-          console.error(`Error response from forecast API: ${response.status}`);
+          console.error(`Ошибка ответа API прогноза: ${response.status}`);
         }
       } catch (error) {
-        console.error("Error fetching parking forecasts:", error);
+        console.error("Ошибка при получении прогнозов:", error);
       } finally {
         activeRequestsRef.current['forecasts'] = false;
       }
@@ -200,8 +197,12 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
     fetchStats();
     fetchForecasts(); // Добавляем загрузку прогнозов
     
+    // Обновляем прогнозы каждые 5 минут
+    const forecastInterval = setInterval(fetchForecasts, 5 * 60 * 1000);
+    
     return () => {
       isMounted = false;
+      clearInterval(forecastInterval);
     };
   }, [parking.id, toast]);
 
@@ -233,6 +234,100 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
     if (freePercentage >= 30) return { bg: "bg-green-50", text: "text-green-600" };
     if (freePercentage >= 10) return { bg: "bg-amber-50", text: "text-amber-600" };
     return { bg: "bg-pink-50", text: "text-red-500" };
+  };
+
+  // Функция для форматирования часа (0 -> 00:00, 13 -> 13:00)
+  const formatHour = (hour: number) => {
+    return `${hour.toString().padStart(2, '0')}:00`;
+  };
+
+  // Функция для определения текущего часа в Москве (UTC+3)
+  const getCurrentMoscowHour = () => {
+    const now = new Date();
+    const moscowTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    return moscowTime.getUTCHours();
+  };
+
+  // Функция для определения, является ли час текущим
+  const isCurrentHour = (timestamp: string) => {
+    const currentHour = getCurrentMoscowHour();
+    const forecastHour = new Date(timestamp).getHours();
+    return currentHour === forecastHour;
+  };
+
+  const renderForecastChart = () => {
+    if (forecasts.length === 0) {
+      return (
+        <div className="text-center py-4 text-sm text-gray-500">
+          Данные о прогнозе загруженности загружаются...
+        </div>
+      );
+    }
+
+    // Получаем текущий час в Москве для выделения текущего часа
+    const currentMoscowHour = getCurrentMoscowHour();
+    
+    // Отладочная информация
+    console.log("Текущий час в Москве:", currentMoscowHour);
+    
+    // Сортируем прогнозы по часам, начиная с текущего часа
+    const sortedForecasts = [...forecasts].sort((a, b) => {
+      const hourA = new Date(a.timestamp).getHours();
+      const hourB = new Date(b.timestamp).getHours();
+      
+      // Вычисляем "расстояние" от текущего часа (0-23 часа)
+      const distA = (hourA - currentMoscowHour + 24) % 24;
+      const distB = (hourB - currentMoscowHour + 24) % 24;
+      
+      return distA - distB;
+    });
+    
+    // Берем только ближайшие 12 часов для отображения
+    const visibleForecasts = sortedForecasts.slice(0, 12);
+    
+    return (
+      <div className="relative py-4">
+        <div className="text-sm font-medium mb-2">Прогноз загруженности по часам</div>
+        <div className="text-xs text-muted-foreground mb-1">← прокрутите для просмотра всех часов →</div>
+        
+        <div className="overflow-x-auto pb-6">
+          <div className="flex space-x-2 min-w-max">
+            {visibleForecasts.map((forecast, index) => {
+              const date = new Date(forecast.timestamp);
+              const hour = date.getHours();
+              const occupancy = forecast.expected_occupancy;
+              const freeSpaces = forecast.expected_free_spaces;
+              const isCurrentHourBar = hour === currentMoscowHour;
+              
+              // Определяем цвет на основе заполненности
+              const getBarColor = () => {
+                if (occupancy < 0.6) return "bg-green-500"; // Свободно
+                if (occupancy < 0.8) return "bg-amber-500"; // Средне
+                return "bg-red-500"; // Занято
+              };
+              
+              const barHeight = `${Math.max(5, Math.round(occupancy * 100))}%`;
+              
+              return (
+                <div key={index} className="relative flex flex-col items-center" style={{ minWidth: "40px" }}>
+                  <div className="text-xs mb-1 font-medium">{freeSpaces}</div>
+                  <div className="relative h-20 w-8 bg-gray-100 rounded-sm">
+                    <div 
+                      className={`absolute bottom-0 w-full rounded-sm ${getBarColor()} ${isCurrentHourBar ? 'ring-2 ring-blue-500' : ''}`} 
+                      style={{ height: barHeight }}
+                    ></div>
+                  </div>
+                  {/* Метка часа */}
+                  <div className={`text-[9px] ${isCurrentHourBar ? 'font-bold text-blue-600' : 'text-gray-600'} absolute -bottom-5 whitespace-nowrap`}>
+                    {formatHour(hour)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -437,118 +532,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                 <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
               </div>
             ) : forecasts && forecasts.length > 0 ? (
-              <div className="h-52 pb-1">
-                <div className="mb-1 text-sm text-center text-muted-foreground">Прогноз загруженности по часам</div>
-                
-                {/* Визуальный индикатор скролла */}
-                <div className="text-xs text-center text-gray-400 mb-1">
-                  <span>← прокрутите для просмотра всех часов →</span>
-                </div>
-                
-                {/* Контейнер с явным скроллом */}
-                <div className="overflow-x-auto pb-1 h-40 custom-scrollbar">
-                  {/* График прогноза с тонкими полосками для всех 24 часов */}
-                  <div className="relative h-32 mt-3 w-full min-w-[720px]">
-                    {/* Горизонтальные линии сетки */}
-                    <div className="absolute w-full h-full flex flex-col justify-between">
-                      <div className="border-t border-dashed border-gray-300 w-full"></div>
-                      <div className="border-t border-dashed border-gray-300 w-full"></div>
-                      <div className="border-t border-dashed border-gray-300 w-full"></div>
-                    </div>
-                    
-                    {/* Убираем легенду по запросу пользователя */}
-                    
-                    {/* График в виде баров */}
-                    <div className="absolute w-full h-full flex">
-                      {/* Обработка данных для показа всех 24 часов без дублирования */}
-                      {(() => {
-                        // Группируем прогнозы по часам и берем самый последний для каждого часа
-                        const hourlyForecasts = new Map();
-                        
-                        // Сначала добавляем все часы с нулевыми данными (0-23)
-                        for (let h = 0; h < 24; h++) {
-                          hourlyForecasts.set(h, {
-                            hour: h,
-                            expected_occupancy: 0.5, // Значение по умолчанию
-                            expected_free_spaces: realTimeData?.totalSpaces ? Math.round(realTimeData.totalSpaces / 2) : 0
-                          });
-                        }
-                        
-                        // Затем перезаписываем имеющимися данными
-                        forecasts.forEach(forecast => {
-                          if (!forecast || typeof forecast.expected_occupancy !== 'number') return;
-                          
-                          // Преобразуем в московское время (UTC+3)
-                          const forecastUtcDate = new Date(forecast.timestamp);
-                          // Преобразуем в московское время (UTC+3)
-                          const mskOffset = 3; // Московское время UTC+3
-                          const localOffset = -forecastUtcDate.getTimezoneOffset() / 60;
-                          const hourDiff = mskOffset - localOffset;
-                          const mskHour = (forecastUtcDate.getHours() + hourDiff + 24) % 24;
-                          
-                          // Всегда перезаписываем, так как данные сортированы по времени
-                          // и последний прогноз для каждого часа самый актуальный
-                          hourlyForecasts.set(mskHour, {
-                            hour: mskHour,
-                            expected_occupancy: forecast.expected_occupancy,
-                            expected_free_spaces: forecast.expected_free_spaces
-                          });
-                        });
-                        
-                        // Превращаем Map в массив и сортируем по часам
-                        return Array.from(hourlyForecasts.values())
-                          .sort((a, b) => a.hour - b.hour)
-                          .map((forecast, index) => {
-                            const hour = forecast.hour;
-                            const occupancyPercent = Math.min(100, Math.max(0, forecast.expected_occupancy * 100));
-                            const freePercent = 100 - occupancyPercent;
-                            
-                            // Используем expected_free_spaces напрямую из прогноза
-                            const estimatedFreeSpaces = forecast.expected_free_spaces || 0;
-                            
-                            // Увеличиваем значение высоты для лучшей видимости
-                            const heightPercent = Math.min(95, Math.max(15, freePercent)); 
-                            
-                            // Определяем цвет на основе свободных мест
-                            let barColor = "bg-red-500"; 
-                            if (freePercent >= 40) barColor = "bg-green-500";
-                            else if (freePercent >= 20) barColor = "bg-amber-500";
-                            
-                            // Текущий час получает выделение (московское время)
-                            const now = new Date();
-                            const mskOffset = 3; // Московское время UTC+3
-                            const localOffset = -now.getTimezoneOffset() / 60;
-                            const hourDiff = mskOffset - localOffset;
-                            const currentMskHour = (now.getHours() + hourDiff + 24) % 24;
-                            const isCurrentHour = hour === currentMskHour;
-                            
-                            return (
-                              <div key={index} className="flex-1 flex flex-col items-center">
-                                {/* Столбец высота = процент свободных мест */}
-                                <div className="w-full h-full flex flex-col justify-end">
-                                  {/* Количество свободных мест прямо над колонкой */}
-                                  <div className="text-[10px] font-semibold text-center mb-1">
-                                    {estimatedFreeSpaces > 0 ? estimatedFreeSpaces : "—"}
-                                  </div>
-                                  
-                                  <div 
-                                    className={`${barColor} w-[60%] mx-auto rounded-t ${isCurrentHour ? 'border-2 border-blue-500' : ''}`} 
-                                    style={{ height: `${heightPercent}%` }}
-                                  ></div>
-                                </div>
-                                
-                                {/* Метка часа */}
-                                <div className={`text-[9px] ${isCurrentHour ? 'font-bold' : ''} text-gray-600 absolute -bottom-4`}>
-                                  {hour}:00
-                                </div>
-                              </div>
-                            );
-                          });
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              renderForecastChart()
             ) : (
               <div className="h-32 flex flex-col items-center justify-center text-center">
                 <Activity className="h-8 w-8 text-muted-foreground" />

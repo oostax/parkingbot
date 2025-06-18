@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { Forecast } from "@/types/parking";
 import { query, checkConnection } from "@/lib/sqlite/db";
 
-// Cache responses for 30 minutes
-const CACHE_TIME = 1800;
+// Уменьшаем время кэширования до 5 минут, чтобы чаще обновлять данные
+const CACHE_TIME = 300;
 const cache = new Map<string, { data: any; timestamp: number }>();
 
 interface HourlyParkingData {
@@ -56,21 +56,22 @@ export async function GET(
     
     // Если данных нет, используем мок-данные
     if (!hourlyData || hourlyData.length === 0) {
+      console.log(`No hourly data found for parking ${parkingId}, using mock data`);
       return generateMockResponse(parkingId, now);
     }
     
-    // Текущее время (Московское, UTC+3)
-    const currentDate = new Date();
-    const mskOffset = 3; // Московское время UTC+3
-    const localOffset = -currentDate.getTimezoneOffset() / 60;
-    const hourDiff = mskOffset - localOffset;
+    console.log(`Found ${hourlyData.length} hourly records for parking ${parkingId}`);
+    
+    // Используем текущий час в Москве (UTC+3)
+    const now_date = new Date();
+    const moscowNow = new Date(now_date.getTime() + 3 * 60 * 60 * 1000);
+    const currentHour = moscowNow.getUTCHours();
     
     // Форматирование данных для фронтенда в формате прогнозов
     const formattedForecasts: Forecast[] = hourlyData.map((hourData) => {
-      // Конвертируем час в дату-время для совместимости с предыдущим форматом
-      const forecastDate = new Date(currentDate);
-      // Устанавливаем час в московском времени с учетом смещения
-      forecastDate.setHours((hourData.hour - hourDiff + 24) % 24);
+      // Создаем дату и устанавливаем час на основе данных из БД
+      const forecastDate = new Date();
+      forecastDate.setHours(hourData.hour, 0, 0, 0);
       
       // Рассчитываем заполненность
       const occupancy = hourData.total_spaces > 0 
@@ -81,10 +82,31 @@ export async function GET(
         timestamp: forecastDate.toISOString(),
         expected_occupancy: occupancy,
         expected_free_spaces: hourData.free_spaces,
+        hour: hourData.hour, // Добавляем час для отладки
+        currentHour, // Добавляем текущий час для отладки
       };
     });
 
-    const result = { forecasts: formattedForecasts };
+    // Сортируем прогнозы по часам, начиная с текущего часа
+    formattedForecasts.sort((a, b) => {
+      const hourA = new Date(a.timestamp).getHours();
+      const hourB = new Date(b.timestamp).getHours();
+      
+      // Вычисляем "расстояние" от текущего часа
+      const distA = (hourA - currentHour + 24) % 24;
+      const distB = (hourB - currentHour + 24) % 24;
+      
+      return distA - distB;
+    });
+
+    const result = { 
+      forecasts: formattedForecasts,
+      meta: {
+        currentHour,
+        dataPoints: hourlyData.length,
+        lastUpdated: hourlyData[0]?.date_updated || new Date().toISOString()
+      }
+    };
     
     // Обновление кэша
     cache.set(parkingId, { data: result, timestamp: now });

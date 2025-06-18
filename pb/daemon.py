@@ -1,4 +1,3 @@
-
 import requests
 import logging
 import sqlite3
@@ -94,6 +93,8 @@ def update_hourly_data(conn):
         current_hour = now.hour
         today = now.strftime('%Y-%m-%d')
         
+        logger.info(f"Обновление почасовых данных для часа {current_hour}:00 (МСК)")
+        
         # Получаем все записи parking_stats за последний час
         one_hour_ago = now - timedelta(hours=1)
         
@@ -105,6 +106,11 @@ def update_hourly_data(conn):
         ''', (one_hour_ago.strftime('%Y-%m-%d %H:%M:%S'),))
         
         parkings = cursor.fetchall()
+        
+        # Логгируем для отладки
+        logger.info(f"Найдено {len(parkings)} парковок с данными за последний час")
+        
+        updated_count = 0
         
         for (parking_id,) in parkings:
             # Для каждой парковки вычисляем среднее значение свободных мест за последний час
@@ -126,15 +132,36 @@ def update_hourly_data(conn):
                     avg_free = int(avg_free)
                     avg_total = int(avg_total)
                     
+                    # Отладочная информация
+                    logger.info(f"Парковка {parking_id}, час {current_hour}: {avg_free}/{avg_total} (на основе {count} записей)")
+                    
                     # Обновляем или вставляем данные для текущего часа
                     cursor.execute('''
                         INSERT OR REPLACE INTO hourly_parking_data 
                         (parking_id, hour, free_spaces, total_spaces, date_updated)
                         VALUES (?, ?, ?, ?, ?)
                     ''', (parking_id, current_hour, avg_free, avg_total, today))
+                    
+                    updated_count += 1
         
         conn.commit()
-        logger.info(f"Обновлены почасовые данные для {len(parkings)} парковок за час {current_hour}:00")
+        logger.info(f"Обновлены почасовые данные для {updated_count} парковок за час {current_hour}:00")
+        
+        # Выводим содержимое hourly_parking_data для отладки (для первой парковки)
+        if parkings and len(parkings) > 0:
+            debug_parking_id = parkings[0][0]
+            cursor.execute('''
+                SELECT hour, free_spaces, total_spaces, date_updated 
+                FROM hourly_parking_data 
+                WHERE parking_id = ? 
+                ORDER BY hour
+            ''', (debug_parking_id,))
+            hours_data = cursor.fetchall()
+            
+            logger.info(f"Текущие почасовые данные для парковки {debug_parking_id}:")
+            for hour_data in hours_data:
+                hour, free, total, updated = hour_data
+                logger.info(f"Час {hour}: {free}/{total} мест (обновлено {updated})")
         
         # Очистка устаревших данных из parking_stats
         cleanup_parking_stats(conn)

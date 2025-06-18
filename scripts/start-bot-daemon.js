@@ -1,5 +1,5 @@
 // Скрипт-демон для сбора статистики парковок
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config({ path: path.resolve(process.cwd(), '.env.production') });
@@ -46,23 +46,35 @@ function startDaemon() {
   fs.writeFileSync(pythonScript, generatePythonScript());
   console.log('Скрипт сбора данных создан');
   
-  const pythonProcess = exec('python3 ' + pythonScript, (error, stdout, stderr) => {
-    if (error) {
-      console.error(`Ошибка выполнения Python скрипта: ${error.message}`);
-      return;
-    }
-    if (stderr) {
-      console.error(`Stderr: ${stderr}`);
-    }
-    console.log(`Stdout: ${stdout}`);
-  });
+  // Используем spawn вместо exec для лучшего контроля над потоками
+  const pythonProcess = spawn('python3', [pythonScript], { stdio: 'pipe' });
   
+  // Правильно обрабатываем stdout (стандартный вывод)
   pythonProcess.stdout.on('data', (data) => {
     console.log(`Лог демона: ${data}`);
   });
   
+  // Обрабатываем stderr (вывод ошибок)
   pythonProcess.stderr.on('data', (data) => {
-    console.error(`Ошибка демона: ${data}`);
+    // Проверяем, содержит ли сообщение признаки обычного лога
+    const message = data.toString();
+    if (message.includes("INFO") || message.includes("DEBUG")) {
+      // Это обычный лог, перенаправляем в stdout
+      console.log(`Лог демона: ${message}`);
+    } else {
+      // Это реальная ошибка
+      console.error(`Ошибка демона: ${message}`);
+    }
+  });
+  
+  // Обработка завершения процесса
+  pythonProcess.on('close', (code) => {
+    console.log(`Демон завершил работу с кодом: ${code}`);
+    // Перезапускаем демон через 10 секунд в случае сбоя
+    if (code !== 0) {
+      console.log('Перезапуск демона через 10 секунд...');
+      setTimeout(startDaemon, 10000);
+    }
   });
   
   console.log('Демон запущен успешно!');
@@ -327,7 +339,7 @@ def update_hourly_data(conn):
                     avg_total = int(avg_total)
                     
                     # Обновляем или вставляем данные для текущего часа
-                    cursor.execute('''
+                cursor.execute('''
                         INSERT OR REPLACE INTO hourly_parking_data 
                         (parking_id, hour, free_spaces, total_spaces, date_updated)
                         VALUES (?, ?, ?, ?, ?)
