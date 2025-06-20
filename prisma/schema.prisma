@@ -70,6 +70,8 @@ model User {
   achievements   Achievement[]
   transactions   TokenTransaction[]
   districts      UserDistrict[]
+
+  @@map("user")
 }
 
 model UserProfile {
@@ -88,6 +90,8 @@ model UserProfile {
   referralsCount       Int      @default(0)
   challengesCompleted  Int      @default(0)
   user                 User     @relation(fields: [userId], references: [id])
+
+  @@map("userprofile")
 }
 
 // Модель для хранения посещенных районов
@@ -98,6 +102,7 @@ model UserDistrict {
   user      User   @relation(fields: [userId], references: [id])
   
   @@unique([userId, district])
+  @@map("userdistrict")
 }
 
 model Achievement {
@@ -109,6 +114,7 @@ model Achievement {
   user         User      @relation(fields: [userId], references: [id])
 
   @@unique([userId, achievementId])
+  @@map("achievement")
 }
 
 model TokenTransaction {
@@ -119,6 +125,8 @@ model TokenTransaction {
   description String
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id])
+
+  @@map("tokentransaction")
 }
 
 model Challenge {
@@ -132,6 +140,8 @@ model Challenge {
   type        String   // DAILY, WEEKLY, ONE_TIME
   requirement Int      // Требуемое количество для выполнения
   completions ChallengeCompletion[]
+
+  @@map("challenge")
 }
 
 // Модель для хранения выполненных челленджей
@@ -143,4 +153,5 @@ model ChallengeCompletion {
   challenge   Challenge @relation(fields: [challengeId], references: [id])
   
   @@unique([challengeId, userId])
+  @@map("challengecompletion")
 } 

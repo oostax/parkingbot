@@ -30,7 +30,7 @@ function initUserTables() {
 
     // Create User table if not exists
     db.run(`
-      CREATE TABLE IF NOT EXISTS User (
+      CREATE TABLE IF NOT EXISTS user (
         id TEXT PRIMARY KEY,
         username TEXT,
         firstName TEXT,
@@ -65,7 +65,7 @@ function initUserTables() {
         totalTokensSpent INTEGER NOT NULL DEFAULT 0,
         referralsCount INTEGER NOT NULL DEFAULT 0,
         challengesCompleted INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE
+        FOREIGN KEY (userId) REFERENCES user(id) ON DELETE CASCADE
       )
     `, function(err) {
       if (err) {
@@ -80,7 +80,7 @@ function initUserTables() {
         id TEXT PRIMARY KEY,
         userId TEXT NOT NULL,
         district TEXT NOT NULL,
-        FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE,
+        FOREIGN KEY (userId) REFERENCES user(id) ON DELETE CASCADE,
         UNIQUE(userId, district)
       )
     `, function(err) {
@@ -98,7 +98,7 @@ function initUserTables() {
         achievementId TEXT NOT NULL,
         earned BOOLEAN NOT NULL DEFAULT 0,
         earnedAt DATETIME,
-        FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE,
+        FOREIGN KEY (userId) REFERENCES user(id) ON DELETE CASCADE,
         UNIQUE(userId, achievementId)
       )
     `, function(err) {
@@ -117,7 +117,7 @@ function initUserTables() {
         type TEXT NOT NULL,
         description TEXT NOT NULL,
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE
+        FOREIGN KEY (userId) REFERENCES user(id) ON DELETE CASCADE
       )
     `, function(err) {
       if (err) {

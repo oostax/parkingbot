@@ -36,6 +36,11 @@ echo "Building the application..."
 npm ci
 npm run build
 
+# Initialize database tables
+echo "Initializing database tables..."
+npm run init-tables
+npm run init-user-tables
+
 # Setup Nginx configuration
 echo "Setting up Nginx configuration..."
 sudo tee /etc/nginx/sites-available/mosparkingbot.ru > /dev/null << EOF

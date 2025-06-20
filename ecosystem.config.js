@@ -24,14 +24,16 @@ module.exports = {
       max_memory_restart: '300M',
     },
     {
-      name: 'stats-daemon',
+      name: 'data-collector',
       script: 'node',
       args: 'scripts/data-collector.js',
       env: {
         NODE_ENV: 'production',
         DATABASE_URL: 'file:./prisma/dev.db'
       },
-      max_memory_restart: '300M',
+      max_memory_restart: '200M',
+      autorestart: true,
+      watch: false,
       restart_delay: 10000, // 10 seconds delay between restarts
       max_restarts: 10, // Max number of consecutive restarts
     }
