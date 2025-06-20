@@ -1,14 +1,5 @@
 # ParkingBot
 
-Мониторинг парковок Москвы с интеграцией Telegram-бота.
-
-## Технологический стек
-
-- **Frontend**: Next.js, React, TypeScript, TailwindCSS
-- **Backend**: Next.js API Routes
-- **База данных**: SQLite (Prisma ORM)
-- **Карты**: Mapbox
-- **Бот**: Telegraf.js
 
 ## Структура проекта
 
