@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const os = require('os');
 
 console.log('Начинаем проверку файла базы данных SQLite...');
 
@@ -32,13 +33,25 @@ try {
     fs.writeFileSync(dbPath, '', 'utf8');
   }
 
-  // Устанавливаем права доступа на файл базы данных
+  // Устанавливаем права доступа на файл базы данных в зависимости от ОС
   console.log('Устанавливаем права доступа на файл базы данных...');
+  if (os.platform() === 'win32') {
+    // На Windows используем icacls для управления правами доступа
+    try {
+      console.log('Установка прав доступа для Windows...');
+      // Выдаем полные права для текущего пользователя
+      fs.chmodSync(dbPath, 0o666);
+      console.log('Права доступа установлены для Windows');
+    } catch (err) {
+      console.log('Не удалось установить права через fs.chmodSync:', err);
+      console.log('Продолжаем выполнение скрипта...');
+    }
+  } else {
+    // На Unix-системах используем chmod
   execSync(`chmod 666 ${dbPath}`, { stdio: 'inherit' });
-
   // Устанавливаем права доступа на директорию prisma
-  console.log('Устанавливаем права доступа на директорию prisma...');
   execSync(`chmod 777 ${prismaDir}`, { stdio: 'inherit' });
+  }
 
   // Инициализируем базу данных с помощью Prisma
   console.log('Инициализируем базу данных с помощью Prisma...');
@@ -67,9 +80,13 @@ try {
   console.log('Генерируем клиент Prisma...');
   execSync('npx prisma generate', { stdio: 'inherit' });
 
-  // Перезапускаем приложение
-  console.log('Перезапускаем приложение...');
+  // Перезапускаем приложение, если PM2 установлен
+  try {
+    console.log('Пытаемся перезапустить приложение через PM2...');
   execSync('pm2 restart nextjs-app --update-env', { stdio: 'inherit' });
+  } catch (err) {
+    console.log('PM2 не установлен или не настроен. Пропускаем перезапуск.');
+  }
 
   console.log('Проверка и исправление файла базы данных завершены успешно!');
   console.log(`Путь к базе данных: ${dbPath}`);

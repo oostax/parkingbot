@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/options";
 import { WheelPrize } from "@/types/gamification";
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 
 // Временные данные для демонстрации
 const mockPrizes: WheelPrize[] = [

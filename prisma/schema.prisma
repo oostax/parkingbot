@@ -7,10 +7,10 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:../pb/bot_database.db"
+  url      = "file:./dev.db"
 }
 
-// Определяем модели в соответствии с существующими таблицами в bot_database.db
+// Модели для работы с парковками и статистикой
 
 model favorites {
   id         Int      @id @default(autoincrement())
@@ -52,7 +52,7 @@ model daily_stats {
   @@unique([parkingId, hour])
 }
 
-// Добавляем модели для аутентификации и геймификации, которые будут созданы при следующем prisma db push
+// Модели для аутентификации и геймификации
 
 model User {
   id         String     @id 

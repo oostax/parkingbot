@@ -31,6 +31,7 @@ export interface ParkingInfo extends ParkingData {
 export interface ParkingStats {
   hour: number;
   avg_free_spaces: number;
+  avgFreeSpaces?: number;
   avg_occupancy: number;
 }
 

@@ -7,9 +7,9 @@ const CACHE_TIME = 21600; // seconds (6 hours)
 const cache = new Map<string, { data: any; timestamp: number }>();
 
 interface DailyStats {
-  parking_id: string;
+  parkingId: string;
   hour: number;
-  avg_free_spaces: number;
+  avgFreeSpaces: number;
   avg_occupancy: number;
 }
 
@@ -43,12 +43,12 @@ export async function GET(
     // Получаем данные из SQLite
     const stats: DailyStats[] = await query<DailyStats>(
       `SELECT 
-        parking_id, 
+        parkingId, 
         hour, 
-        avg_free_spaces, 
+        avgFreeSpaces, 
         avg_occupancy 
        FROM daily_stats 
-       WHERE parking_id = ? 
+       WHERE parkingId = ? 
        ORDER BY hour`,
       [parkingId]
     );
@@ -61,7 +61,8 @@ export async function GET(
     // Формируем данные в нужном формате
     const formattedStats: ParkingStats[] = stats.map(stat => ({
       hour: stat.hour,
-      avg_free_spaces: stat.avg_free_spaces,
+      avg_free_spaces: stat.avgFreeSpaces,
+      avgFreeSpaces: stat.avgFreeSpaces,
       avg_occupancy: stat.avg_occupancy
     }));
     

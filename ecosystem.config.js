@@ -26,12 +26,14 @@ module.exports = {
     {
       name: 'stats-daemon',
       script: 'node',
-      args: 'scripts/start-bot-daemon.js',
+      args: 'scripts/data-collector.js',
       env: {
         NODE_ENV: 'production',
         DATABASE_URL: 'file:./prisma/dev.db'
       },
       max_memory_restart: '300M',
+      restart_delay: 10000, // 10 seconds delay between restarts
+      max_restarts: 10, // Max number of consecutive restarts
     }
   ]
 }; 

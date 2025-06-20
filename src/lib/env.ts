@@ -1,0 +1,34 @@
+// This module ensures environment variables are loaded
+import { config } from 'dotenv';
+
+// Load environment variables from multiple .env files
+config({ path: '.env.development' });
+config({ path: '.env.local' });
+config({ path: '.env' });
+
+// The PostgreSQL connection string
+const DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/parkingbot?schema=public';
+
+// Set DATABASE_URL both as a module export and as a global environment variable
+if (typeof process !== 'undefined' && process.env) {
+  // Set the environment variable if it's not already set
+  if (!process.env.DATABASE_URL) {
+    console.log('Setting DATABASE_URL environment variable with default value');
+    process.env.DATABASE_URL = DATABASE_URL;
+  } else {
+    console.log('DATABASE_URL environment variable already set');
+  }
+
+  // Log the DATABASE_URL value (with credentials masked)
+  const visibleUrl = process.env.DATABASE_URL.replace(/\/\/.*?@/, '//***:***@');
+  console.log(`Current DATABASE_URL: ${visibleUrl}`);
+}
+
+// Set the variable in global scope for Prisma
+if (typeof global !== 'undefined') {
+  (global as any).DATABASE_URL = process.env.DATABASE_URL || DATABASE_URL;
+}
+
+export default {
+  DATABASE_URL: process.env.DATABASE_URL || DATABASE_URL
+}; 

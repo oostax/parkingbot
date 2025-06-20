@@ -6,7 +6,7 @@ export interface UserAchievement {
   description: string;
   imageUrl: string;
   earned: boolean;
-  earnedAt?: Date;
+  earnedAt?: Date | null;
   progress?: number; // Процент выполнения (0-100)
   totalRequired?: number; // Общее количество для выполнения
   currentProgress?: number; // Текущий прогресс

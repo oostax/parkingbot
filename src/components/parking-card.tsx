@@ -40,6 +40,67 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
   // Минимальный интервал между запросами (5 секунд)
   const MIN_REQUEST_INTERVAL = 5000;
   
+  // Немедленно загружаем данные при монтировании компонента
+  useEffect(() => {
+    console.log(`Loading initial data for parking ${parking.id}...`);
+    const loadInitialData = async () => {
+      try {
+        const timestamp = new Date().getTime();
+        console.log(`Fetching API: /api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`);
+        
+        const response = await fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`);
+        console.log(`API response status: ${response.status}`);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch parking data: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log("API response data:", data);
+        
+        if (data) {
+          if ('dataAvailable' in data && data.dataAvailable === false) {
+            console.log("Data marked as unavailable");
+            setDataAvailable(false);
+            setRealTimeData(null);
+          } else {
+            console.log("Data available, updating state");
+            setDataAvailable(true);
+            setIsStaleData('isStale' in data && data.isStale === true);
+            setRealTimeData(data);
+          }
+        } else {
+          console.log("No data received from API");
+          setDataAvailable(false);
+          setRealTimeData(null);
+        }
+      } catch (error) {
+        console.error("Error in initial data load:", error);
+        setDataAvailable(false);
+        
+        // Fallback: try using getParkingRealTimeData helper after a short delay
+        setTimeout(() => {
+          console.log("Trying fallback data loading method...");
+          getParkingRealTimeData(parking.id)
+            .then(data => {
+              if (data) {
+                setRealTimeData(data);
+                setDataAvailable(!('dataAvailable' in data && data.dataAvailable === false));
+                console.log("Fallback data loaded successfully");
+              }
+            })
+            .catch(e => console.error("Fallback data loading failed:", e))
+            .finally(() => setIsLoadingData(false));
+        }, 500);
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
+
+    // Вызываем загрузку данных немедленно
+    loadInitialData();
+  }, [parking.id]);
+  
   useEffect(() => {
     let isMounted = true;
     let retryCount = 0;
@@ -51,26 +112,20 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
         return;
       }
       
-      // Проверяем, не слишком ли часто отправляем запросы
-      const lastRequestTime = lastRequestTimeRef.current['liveData'] || 0;
-      const now = Date.now();
-      if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
-        return;
-      }
-      
+      // Всегда загружаем свежие данные при открытии карточки
       setIsLoadingData(true);
       activeRequestsRef.current['liveData'] = true;
       
       try {
-        // Добавляем параметр noCache и текущее время для предотвращения кэширования
+        // Всегда используем noCache=true для гарантированного получения данных
         const timestamp = new Date().getTime();
-        const data = await fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`)
-          .then(response => {
+        const response = await fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`);
+        
             if (!response.ok) {
               throw new Error(`Failed to fetch parking data: ${response.statusText}`);
             }
-            return response.json();
-          });
+        
+        const data = await response.json();
           
         if (isMounted) {
           if (data) {
@@ -89,7 +144,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
             setRealTimeData(null);
           }
           setIsLoadingData(false);
-          lastRequestTimeRef.current['liveData'] = now;
+          lastRequestTimeRef.current['liveData'] = Date.now();
         }
       } catch (error) {
         if (isMounted) {
@@ -130,6 +185,14 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
           const data = await response.json();
           if (data.forecasts && data.forecasts.length > 0) {
             console.log(`Получены прогнозы для парковки ${parking.id}:`, data.forecasts.length);
+            
+            // Проверяем, что у нас есть разные значения для свободных мест
+            const uniqueValues = new Set(data.forecasts.map((f: any) => f.expected_free_spaces));
+            console.log(`Уникальных значений свободных мест: ${uniqueValues.size}`);
+            
+            // Отладочная информация о первых нескольких прогнозах
+            console.log("Примеры прогнозов:", data.forecasts.slice(0, 3));
+            
             setForecasts(data.forecasts);
             
             // Отладочная информация о метаданных
@@ -147,6 +210,8 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
         console.error("Ошибка при получении прогнозов:", error);
       } finally {
         activeRequestsRef.current['forecasts'] = false;
+        // Always reset loading state when forecast fetch completes
+        setIsLoadingData(false);
       }
     };
     
@@ -206,6 +271,26 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
     };
   }, [parking.id, toast]);
 
+  // Добавляем useEffect для отслеживания статуса загруженных прогнозов
+  useEffect(() => {
+    // Если forecasts получены и isLoadingData все еще true, сбрасываем loading state
+    if (forecasts && forecasts.length > 0 && isLoadingData) {
+      setIsLoadingData(false);
+    }
+  }, [forecasts]);
+
+  // Добавляем useEffect для установки тайм-аута, чтобы предотвратить бесконечную загрузку
+  useEffect(() => {
+    // Если загрузка длится больше 10 секунд, сбрасываем состояние загрузки
+    if (isLoadingData) {
+      const timeout = setTimeout(() => {
+        setIsLoadingData(false);
+      }, 10000); // 10 секунд максимум для загрузки
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [isLoadingData]);
+
   const openInYandexMaps = () => {
     // Use lng if available, fall back to lon, and if neither is available, use a default longitude
     const longitude = parking.lng || parking.lon || 37.6156; // Default to Moscow center longitude if nothing available
@@ -244,8 +329,10 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
   // Функция для определения текущего часа в Москве (UTC+3)
   const getCurrentMoscowHour = () => {
     const now = new Date();
-    const moscowTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-    return moscowTime.getUTCHours();
+    // Правильный расчет московского времени (UTC+3)
+    const moscowTime = new Date(now);
+    moscowTime.setUTCHours(now.getUTCHours() + 3);
+    return moscowTime.getHours();
   };
 
   // Функция для определения, является ли час текущим
@@ -282,12 +369,12 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
       return distA - distB;
     });
     
-    // Берем только ближайшие 12 часов для отображения
-    const visibleForecasts = sortedForecasts.slice(0, 12);
+    // Берем все 24 часа для отображения
+    const visibleForecasts = sortedForecasts.slice(0, 24);
     
     return (
       <div className="relative py-4">
-        <div className="text-sm font-medium mb-2">Прогноз загруженности по часам</div>
+        <div className="text-sm font-medium mb-2">Прогноз загруженности на 24 часа</div>
         <div className="text-xs text-muted-foreground mb-1">← прокрутите для просмотра всех часов →</div>
         
         <div className="overflow-x-auto pb-6">
@@ -308,17 +395,22 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
               
               const barHeight = `${Math.max(5, Math.round(occupancy * 100))}%`;
               
+              // Убеждаемся, что freeSpaces - это число и оно корректное
+              const validFreeSpaces = typeof freeSpaces === 'number' && !isNaN(freeSpaces) 
+                ? Math.round(freeSpaces) 
+                : 0;
+              
               return (
-                <div key={index} className="relative flex flex-col items-center" style={{ minWidth: "40px" }}>
-                  <div className="text-xs mb-1 font-medium">{freeSpaces}</div>
-                  <div className="relative h-20 w-8 bg-gray-100 rounded-sm">
+                <div key={index} className="relative flex flex-col items-center" style={{ minWidth: "35px" }}>
+                  <div className="text-xs mb-1 font-medium">{validFreeSpaces}</div>
+                  <div className="relative h-20 w-7 bg-gray-100 rounded-sm">
                     <div 
                       className={`absolute bottom-0 w-full rounded-sm ${getBarColor()} ${isCurrentHourBar ? 'ring-2 ring-blue-500' : ''}`} 
                       style={{ height: barHeight }}
                     ></div>
                   </div>
                   {/* Метка часа */}
-                  <div className={`text-[9px] ${isCurrentHourBar ? 'font-bold text-blue-600' : 'text-gray-600'} absolute -bottom-5 whitespace-nowrap`}>
+                  <div className={`text-[8px] ${isCurrentHourBar ? 'font-bold text-blue-600' : 'text-gray-600'} absolute -bottom-5 whitespace-nowrap`}>
                     {formatHour(hour)}
                   </div>
                 </div>
@@ -363,7 +455,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
           </TabsList>
           
           <TabsContent value="status" className="space-y-2 pt-2">
-            {isLoadingData ? (
+            {isLoadingData || !realTimeData ? (
               <div className="h-32 flex flex-col items-center justify-center text-center">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
@@ -396,8 +488,15 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                         setIsStaleData(false);
                         activeRequestsRef.current['liveData'] = true;
                         
-                        setTimeout(() => {
-                          getParkingRealTimeData(parking.id)
+                        // Используем прямой fetch вместо вспомогательной функции
+                        const timestamp = new Date().getTime();
+                        fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`)
+                          .then(response => {
+                            if (!response.ok) {
+                              throw new Error(`Failed to fetch parking data: ${response.statusText}`);
+                            }
+                            return response.json();
+                          })
                             .then(data => {
                               if (data) {
                                 if ('dataAvailable' in data && data.dataAvailable === false) {
@@ -414,7 +513,8 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                               }
                               lastRequestTimeRef.current['liveData'] = now;
                             })
-                            .catch(() => {
+                          .catch(error => {
+                            console.error("Error fetching parking data:", error);
                               setDataAvailable(false);
                               setRealTimeData(null);
                             })
@@ -422,7 +522,6 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                               setIsLoadingData(false);
                               activeRequestsRef.current['liveData'] = false;
                             });
-                        }, 300);
                       }}
                     >
                       Обновить
@@ -499,23 +598,42 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                       setIsLoadingData(true);
                       activeRequestsRef.current['liveData'] = true;
                       
-                      setTimeout(() => {
-                        getParkingRealTimeData(parking.id)
+                      // Используем прямой fetch вместо вспомогательной функции
+                      const timestamp = new Date().getTime();
+                      fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`)
+                        .then(response => {
+                          if (!response.ok) {
+                            throw new Error(`Failed to fetch parking data: ${response.statusText}`);
+                          }
+                          return response.json();
+                        })
                           .then(data => {
                             if (data) {
-                              setRealTimeData(data);
-                              setDataAvailable(!('dataAvailable' in data && data.dataAvailable === false));
-                            } else {
+                            // Проверяем наличие флага dataAvailable
+                            if ('dataAvailable' in data && data.dataAvailable === false) {
                               setDataAvailable(false);
+                              setRealTimeData(null);
+                            } else {
+                              setDataAvailable(true);
+                              // Проверяем наличие флага isStale
+                              setIsStaleData('isStale' in data && data.isStale === true);
+                              setRealTimeData(data);
+                            }
+                          } else {
+                            setDataAvailable(false);
+                            setRealTimeData(null);
                             }
                             lastRequestTimeRef.current['liveData'] = now;
                           })
-                          .catch(() => setDataAvailable(false))
+                        .catch(error => {
+                          console.error("Error fetching parking data:", error);
+                          setDataAvailable(false);
+                          setRealTimeData(null);
+                        })
                           .finally(() => {
                             setIsLoadingData(false);
                             activeRequestsRef.current['liveData'] = false;
                           });
-                      }, 300);
                     }}
                   >
                     <Loader2 className="h-3 w-3 mr-1" /> Обновить
@@ -526,13 +644,13 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
           </TabsContent>
           
           <TabsContent value="forecast" className="pt-2">
-            {isLoadingData ? (
+            {forecasts && forecasts.length > 0 ? (
+              renderForecastChart()
+            ) : isLoadingData ? (
               <div className="h-32 flex flex-col items-center justify-center text-center">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
               </div>
-            ) : forecasts && forecasts.length > 0 ? (
-              renderForecastChart()
             ) : (
               <div className="h-32 flex flex-col items-center justify-center text-center">
                 <Activity className="h-8 w-8 text-muted-foreground" />

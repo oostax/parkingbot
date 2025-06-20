@@ -6,9 +6,9 @@ const CACHE_TIME = 900; // seconds (15 minutes)
 const cache: { data: any; timestamp: number } = { data: null, timestamp: 0 };
 
 interface DailyStats {
-  parking_id: string;
+  parkingId: string;
   hour: number;
-  avg_free_spaces: number;
+  avgFreeSpaces: number;
   avg_occupancy: number;
 }
 
@@ -40,21 +40,21 @@ export async function GET(request: NextRequest) {
     // Get occupancy data for all parkings for the current hour from SQLite
     const stats: DailyStats[] = await query<DailyStats>(
       `SELECT 
-        parking_id, 
+        parkingId, 
         hour, 
-        avg_free_spaces, 
+        avgFreeSpaces, 
         avg_occupancy 
        FROM daily_stats 
        WHERE hour = ?
-       ORDER BY parking_id`,
+       ORDER BY parkingId`,
       [currentHour]
     );
     
     // Format the data for easy consumption by the front-end
     const occupancyData = stats.reduce((acc, stat) => {
-      acc[stat.parking_id] = {
+      acc[stat.parkingId] = {
         occupancy: stat.avg_occupancy,
-        freeSpaces: stat.avg_free_spaces,
+        freeSpaces: stat.avgFreeSpaces,
       };
       return acc;
     }, {} as Record<string, { occupancy: number, freeSpaces: number }>);

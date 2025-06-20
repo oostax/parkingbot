@@ -26,6 +26,7 @@ yarn-error.log*
 # Local env files
 .env*.local
 .env
+.env.production
 
 # Vercel
 .vercel
@@ -36,6 +37,14 @@ next-env.d.ts
 
 # Prisma
 /prisma/migrations/*_init/migration.sql
+
+# Databases
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+/prisma/dev.db
+/prisma/dev.db.backup
 
 # IDE specific files
 .idea

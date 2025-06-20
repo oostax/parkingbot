@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/options";
 import { ParkingData } from "@/types/parking";
+import path from 'path';
+import fs from 'fs/promises';
 
 // We'll keep this function commented as reference but remove it from active code
 /*
@@ -95,13 +97,11 @@ export async function GET(
     const { id } = await context.params;
     const parkingId = id;
 
-    // First, get the parking details from our JSON data
-    const response = await fetch(`${process.env.NEXTAUTH_URL || request.nextUrl.origin}/data/parking_data.json`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch parking data');
-    }
+    // Read parking data directly from the filesystem instead of using fetch
+    const dataFilePath = path.join(process.cwd(), 'public', 'data', 'parking_data.json');
+    const fileContent = await fs.readFile(dataFilePath, 'utf-8');
+    const parkingData = JSON.parse(fileContent);
     
-    const parkingData = await response.json();
     const parking = parkingData.find((p: ParkingData) => p.id === parkingId);
     
     if (!parking) {

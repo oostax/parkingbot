@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/options";
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import { UserAchievement } from "@/types/gamification";
 
 export default async function handler(
@@ -48,7 +48,7 @@ export default async function handler(
       }
 
       // Получаем достижения пользователя
-      let userAchievements: { id: string; achievementId: string; earned: boolean; earnedAt?: Date }[] = [];
+      let userAchievements: { id: string; userId: string; achievementId: string; earned: boolean; earnedAt: Date | null }[] = [];
       try {
         userAchievements = await prisma.achievement.findMany({
           where: {
@@ -200,7 +200,7 @@ export default async function handler(
           description: achievement.description,
           imageUrl: achievement.imageUrl,
           earned,
-          earnedAt: userAchievement?.earnedAt || (earned ? new Date() : undefined),
+          earnedAt: userAchievement?.earnedAt !== null ? userAchievement?.earnedAt : (earned ? new Date() : undefined),
           progress,
           totalRequired: achievement.totalRequired,
           currentProgress,

@@ -62,10 +62,18 @@ export async function GET(
     
     console.log(`Found ${hourlyData.length} hourly records for parking ${parkingId}`);
     
+    // Проверяем, что данные разные для разных часов
+    const uniqueFreeSpaces = new Set(hourlyData.map(data => data.free_spaces));
+    console.log(`Unique free spaces values: ${Array.from(uniqueFreeSpaces).join(', ')}`);
+    
     // Используем текущий час в Москве (UTC+3)
     const now_date = new Date();
-    const moscowNow = new Date(now_date.getTime() + 3 * 60 * 60 * 1000);
-    const currentHour = moscowNow.getUTCHours();
+    // Правильный расчет московского времени (UTC+3)
+    const moscowNow = new Date(now_date);
+    moscowNow.setUTCHours(now_date.getUTCHours() + 3);
+    const currentHour = moscowNow.getHours();
+    
+    console.log(`Текущий час в Москве: ${currentHour}:00`);
     
     // Форматирование данных для фронтенда в формате прогнозов
     const formattedForecasts: Forecast[] = hourlyData.map((hourData) => {
@@ -77,11 +85,16 @@ export async function GET(
       const occupancy = hourData.total_spaces > 0 
         ? 1 - (hourData.free_spaces / hourData.total_spaces) 
         : 0.5;
+      
+      // Проверяем, что значения корректны
+      const freeSpaces = typeof hourData.free_spaces === 'number' && !isNaN(hourData.free_spaces) 
+        ? Math.max(0, Math.min(hourData.total_spaces, hourData.free_spaces)) 
+        : 0;
 
       return {
         timestamp: forecastDate.toISOString(),
         expected_occupancy: occupancy,
-        expected_free_spaces: hourData.free_spaces,
+        expected_free_spaces: freeSpaces,
         hour: hourData.hour, // Добавляем час для отладки
         currentHour, // Добавляем текущий час для отладки
       };
@@ -135,31 +148,45 @@ function generateMockResponse(parkingId: string, now: number) {
     0.65, 0.6, 0.65, 0.7, 0.75, 0.7, // вечер-ночь
   ];
   
-  // Генерация прогнозов на 24 часа вперед
+  // Генерация прогнозов на 24 часа
   const currentDate = new Date();
+  // Правильный расчет московского времени (UTC+3)
+  const moscowNow = new Date(currentDate);
+  moscowNow.setUTCHours(currentDate.getUTCHours() + 3);
+  const currentHour = moscowNow.getHours();
+  
+  console.log(`Генерация мок-данных, текущий час в Москве: ${currentHour}:00`);
+  
   const seed = parkingIdNumber % 100;
   const totalSpaces = 50 + (parkingIdNumber % 150);
   
   for (let hour = 0; hour < 24; hour++) {
-    const forecastDate = new Date(currentDate);
+    const forecastDate = new Date();
     forecastDate.setHours(hour);
     
     // Определение шаблона заполненности на основе часа дня
     const hourOfDay = hour % 24;
     const baseOccupancy = basePatterns[hourOfDay];
     
-    // Добавление вариации на основе ID парковки
+    // Добавление вариации на основе ID парковки и часа
     const variation = ((seed * (hour + 1)) % 20) / 100; // +/- 10%
     let occupancy = baseOccupancy + variation - 0.1;
     
     // Обеспечение нахождения в пределах [0.05, 0.95]
     occupancy = Math.max(0.05, Math.min(0.95, occupancy));
-    const freeSpaces = Math.round(totalSpaces * (1 - occupancy));
+    
+    // Генерируем разные значения свободных мест для разных часов
+    // Используем seed и hour для создания уникальных значений
+    const hourVariation = ((seed + hour) % 30) - 15; // -15 до +14
+    const freeSpaces = Math.round(totalSpaces * (1 - occupancy)) + hourVariation;
+    
+    // Убеждаемся, что свободных мест не меньше 0 и не больше totalSpaces
+    const adjustedFreeSpaces = Math.max(0, Math.min(totalSpaces, freeSpaces));
     
     forecasts.push({
       timestamp: forecastDate.toISOString(),
       expected_occupancy: occupancy,
-      expected_free_spaces: freeSpaces,
+      expected_free_spaces: adjustedFreeSpaces,
     });
   }
   
