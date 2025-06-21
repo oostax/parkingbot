@@ -44,18 +44,59 @@ function ensureDirectoriesExist() {
   console.log('✅ Все необходимые директории существуют');
 }
 
+// Установка прав доступа к файлу базы данных
+function fixDatabasePermissions() {
+  console.log('Установка прав доступа к файлу базы данных...');
+  
+  try {
+    if (fs.existsSync(DB_PATH)) {
+      // Удаляем атрибут "только для чтения" на Windows
+      if (process.platform === 'win32') {
+        execSync(`attrib -R "${DB_PATH}"`, { stdio: 'inherit' });
+      } else {
+        // На Unix-системах устанавливаем права 666 (чтение и запись для всех)
+        fs.chmodSync(DB_PATH, 0o666);
+      }
+      console.log('✅ Права доступа к файлу базы данных установлены');
+    }
+  } catch (error) {
+    console.error('❌ Ошибка при установке прав доступа к файлу базы данных:', error);
+  }
+}
+
 // Создание или проверка базы данных
 function setupDatabase() {
   console.log('Настройка базы данных...');
   
   // Проверяем, существует ли уже файл базы данных
-  if (!fs.existsSync(DB_PATH)) {
-    console.log('Создание новой базы данных...');
+  if (fs.existsSync(DB_PATH)) {
+    console.log(`Удаление существующего файла базы данных: ${DB_PATH}`);
+    try {
+      fs.unlinkSync(DB_PATH);
+    } catch (error) {
+      console.error('❌ Ошибка при удалении файла базы данных:', error);
+      console.log('Попытка установить права доступа и повторить...');
+      fixDatabasePermissions();
+      try {
+        fs.unlinkSync(DB_PATH);
+      } catch (innerError) {
+        console.error('❌ Не удалось удалить файл базы данных:', innerError);
+        console.log('Продолжаем с существующим файлом...');
+      }
+    }
+  }
+  
+  console.log('Создание новой базы данных...');
+  try {
     const db = new sqlite3.Database(DB_PATH);
     db.close();
     console.log(`✅ База данных создана: ${DB_PATH}`);
-  } else {
-    console.log(`✅ База данных уже существует: ${DB_PATH}`);
+    
+    // Устанавливаем права доступа
+    fixDatabasePermissions();
+  } catch (error) {
+    console.error('❌ Ошибка при создании базы данных:', error);
+    process.exit(1);
   }
 }
 
@@ -309,6 +350,7 @@ async function main() {
     ensureDirectoriesExist();
     setupDatabase();
     createDatabaseTables();
+    fixDatabasePermissions(); // Повторно устанавливаем права доступа после создания таблиц
     clearPrismaCache();
     
     console.log('✅ Настройка базы данных успешно завершена!');

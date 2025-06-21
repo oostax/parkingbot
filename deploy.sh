@@ -37,14 +37,23 @@ if ! command -v sqlite3 &> /dev/null; then
     sudo apt-get install -y sqlite3
 fi
 
+# Create and set permissions for prisma directory
+echo "Setting up prisma directory..."
+mkdir -p prisma
+chmod 777 prisma
+
 # Build the Next.js application
 echo "Building the application..."
 npm ci
 npm run build
 
-# Initialize database tables
+# Initialize database
 echo "Initializing database..."
 npm run init-db
+
+# Set proper permissions for the database file
+echo "Setting database file permissions..."
+chmod 666 prisma/dev.db
 
 # Setup Nginx configuration
 echo "Setting up Nginx configuration..."
