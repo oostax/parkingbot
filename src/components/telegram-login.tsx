@@ -6,7 +6,6 @@ import { signIn } from "next-auth/react";
 import Script from "next/script";
 import { Loader2 } from "lucide-react";
 import type { TelegramAuthData } from "@/types/telegram";
-import { useSearchParams } from "next/navigation";
 
 interface TelegramLoginProps {
   onSuccess?: () => void;
@@ -16,7 +15,6 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
   const [isTelegramScriptLoaded, setIsTelegramScriptLoaded] = useState(false);
   const [isMiniApp, setIsMiniApp] = useState(false);
   const [isAutoLoggingIn, setIsAutoLoggingIn] = useState(false);
-  const searchParams = useSearchParams();
   
   // Process data from Telegram widget
   const handleTelegramAuth = useCallback((userData: TelegramAuthData) => {

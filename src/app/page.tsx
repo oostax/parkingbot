@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { ParkingInfo } from "@/types/parking";
@@ -47,6 +47,17 @@ const initWebApp = () => {
     }
   }
 };
+
+// Компонент-заглушка для Suspense
+const TelegramLoginFallback = () => (
+  <Button 
+    variant="outline" 
+    size="sm" 
+    className="text-xs py-1 px-2 md:py-2 md:px-4"
+  >
+    Загрузка...
+  </Button>
+);
 
 export default function Home() {
   const { data: session } = useSession();
@@ -288,7 +299,9 @@ export default function Home() {
                 </Button>
               </div>
             ) : (
-              <TelegramLogin onSuccess={() => fetchParkings()} />
+              <Suspense fallback={<TelegramLoginFallback />}>
+                <TelegramLogin onSuccess={() => fetchParkings()} />
+              </Suspense>
             )}
           </div>
         </div>
