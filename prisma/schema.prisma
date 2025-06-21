@@ -35,18 +35,6 @@ model hourly_parking_data {
   @@unique([parking_id, hour])
 }
 
-model daily_stats {
-  id            String   @id @default(cuid())
-  parkingId     String
-  hour          Int
-  avgFreeSpaces Float
-  avg_occupancy Float
-  sampleCount   Int
-  lastUpdated   DateTime
-
-  @@unique([parkingId, hour])
-}
-
 model User {
   id           String             @id
   username     String?

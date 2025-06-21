@@ -326,13 +326,17 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
     return `${hour.toString().padStart(2, '0')}:00`;
   };
 
-  // Функция для определения текущего часа в Москве (UTC+3)
+  // Функция для определения текущего часа в Москве (текущее локальное время уже московское)
   const getCurrentMoscowHour = () => {
     const now = new Date();
-    // Правильный расчет московского времени (UTC+3)
-    const moscowTime = new Date(now);
-    moscowTime.setUTCHours(now.getUTCHours() + 3);
-    return moscowTime.getHours();
+    // Возвращаем текущий локальный час, так как он уже московский
+    return now.getHours();
+  };
+
+  // Функция для расчета часа прогноза (+3 часа от текущего московского времени)
+  const getForecastHour = () => {
+    const currentHour = getCurrentMoscowHour();
+    return currentHour; // Возвращаем текущий час, а не +3 часа
   };
 
   // Функция для определения, является ли час текущим
@@ -354,8 +358,12 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
     // Получаем текущий час в Москве для выделения текущего часа
     const currentMoscowHour = getCurrentMoscowHour();
     
+    // Получаем час прогноза (текущий московский час)
+    const forecastHour = getForecastHour();
+    
     // Отладочная информация
     console.log("Текущий час в Москве:", currentMoscowHour);
+    console.log("Час прогноза:", forecastHour);
     
     // Сортируем прогнозы по часам, начиная с текущего часа
     const sortedForecasts = [...forecasts].sort((a, b) => {
@@ -374,8 +382,8 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
     
     return (
       <div className="relative py-4">
-        <div className="text-sm font-medium mb-2">Прогноз загруженности на 24 часа</div>
-        <div className="text-xs text-muted-foreground mb-1">← прокрутите для просмотра всех часов →</div>
+        <div className="text-sm font-medium mb-2 text-center">Прогноз загруженности на 24 часа</div>
+        <div className="text-xs text-muted-foreground mb-1 text-center">← прокрутите для просмотра всех часов →</div>
         
         <div className="overflow-x-auto pb-6">
           <div className="flex space-x-2 min-w-max">
@@ -385,6 +393,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
               const occupancy = forecast.expected_occupancy;
               const freeSpaces = forecast.expected_free_spaces;
               const isCurrentHourBar = hour === currentMoscowHour;
+              const isForecastHourBar = hour === forecastHour;
               
               // Определяем цвет на основе заполненности
               const getBarColor = () => {
@@ -401,16 +410,15 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                 : 0;
               
               return (
-                <div key={index} className="relative flex flex-col items-center" style={{ minWidth: "35px" }}>
-                  <div className="text-xs mb-1 font-medium">{validFreeSpaces}</div>
-                  <div className="relative h-20 w-7 bg-gray-100 rounded-sm">
+                <div key={index} className="flex flex-col items-center">
+                  <div className="text-xs font-medium">{validFreeSpaces}</div>
+                  <div className="relative h-32 w-10">
                     <div 
-                      className={`absolute bottom-0 w-full rounded-sm ${getBarColor()} ${isCurrentHourBar ? 'ring-2 ring-blue-500' : ''}`} 
+                      className={`absolute bottom-0 w-full ${getBarColor()} rounded-t-sm`} 
                       style={{ height: barHeight }}
                     ></div>
                   </div>
-                  {/* Метка часа */}
-                  <div className={`text-[8px] ${isCurrentHourBar ? 'font-bold text-blue-600' : 'text-gray-600'} absolute -bottom-5 whitespace-nowrap`}>
+                  <div className={`text-xs mt-1 ${isCurrentHourBar ? 'font-bold bg-blue-100 px-1 rounded' : ''} ${isForecastHourBar ? 'font-bold bg-purple-100 px-1 rounded' : ''}`}>
                     {formatHour(hour)}
                   </div>
                 </div>
@@ -619,8 +627,8 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                               setIsStaleData('isStale' in data && data.isStale === true);
                               setRealTimeData(data);
                             }
-                          } else {
-                            setDataAvailable(false);
+                            } else {
+                              setDataAvailable(false);
                             setRealTimeData(null);
                             }
                             lastRequestTimeRef.current['liveData'] = now;

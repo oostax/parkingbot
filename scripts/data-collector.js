@@ -97,14 +97,12 @@ async function getParkingInfo(parkingId) {
 function recordParkingState(db, parkingId, freeSpaces, totalSpaces) {
   return new Promise((resolve, reject) => {
     try {
-      // Правильный расчет московского времени (UTC+3)
+      // Используем локальное время, которое уже является московским
       const now = new Date();
-      const moscowTime = new Date(now);
-      moscowTime.setUTCHours(now.getUTCHours() + 3);
       
       db.run(
         "INSERT INTO parking_stats (parking_id, timestamp, free_spaces, total_spaces) VALUES (?, ?, ?, ?)",
-        [parkingId, moscowTime.toISOString(), freeSpaces, totalSpaces],
+        [parkingId, now.toISOString(), freeSpaces, totalSpaces],
         function(err) {
           if (err) {
             logger.error(`Error recording state for parking ${parkingId}: ${err.message}`);
@@ -124,18 +122,15 @@ function recordParkingState(db, parkingId, freeSpaces, totalSpaces) {
 function updateHourlyData(db) {
   return new Promise((resolve, reject) => {
     try {
-      // Правильный расчет московского времени (UTC+3)
+      // Используем локальное время, которое уже является московским
       const now = new Date();
-      const moscowTime = new Date(now);
-      // Устанавливаем часы в соответствии с московским временем (UTC+3)
-      moscowTime.setUTCHours(now.getUTCHours() + 3);
-      const currentHour = moscowTime.getHours();
-      const today = moscowTime.toISOString().split('T')[0];
+      const currentHour = now.getHours();
+      const today = now.toISOString().split('T')[0];
       
       logger.info(`Updating hourly data for hour ${currentHour}:00 (MSK)`);
       
       // Get records from the last hour
-      const oneHourAgo = new Date(moscowTime.getTime() - (60 * 60 * 1000));
+      const oneHourAgo = new Date(now.getTime() - (60 * 60 * 1000));
       
       db.all(
         `SELECT DISTINCT parking_id FROM parking_stats WHERE timestamp >= ?`,
@@ -275,11 +270,9 @@ async function initializeForecastData(db, parkingData) {
         if (row.count < parkingData.length * 24 * 0.8) {
           logger.info(`Недостаточно данных прогноза (${row.count}), инициализация...`);
           
-          // Текущая дата в формате Москвы (UTC+3)
+          // Текущая дата в локальном формате (уже московское время)
           const now = new Date();
-          const moscowTime = new Date(now);
-          moscowTime.setUTCHours(now.getUTCHours() + 3);
-          const today = moscowTime.toISOString().split('T')[0];
+          const today = now.toISOString().split('T')[0];
           
           // Шаблоны заполнения по часам (утро, день, вечер, ночь)
           const patterns = {
@@ -395,13 +388,10 @@ async function collectParkingData() {
     
     // Get current hour (Moscow time)
     const now = new Date();
-    // Правильный расчет московского времени (UTC+3)
-    const moscowTime = new Date(now);
-    moscowTime.setUTCHours(now.getUTCHours() + 3);
-    let currentHour = moscowTime.getHours();
+    let currentHour = now.getHours();
     let lastUpdateHour = currentHour;
     
-    logger.info(`Current Moscow time: ${moscowTime.toLocaleTimeString()} (${currentHour}:00), Date: ${moscowTime.toLocaleDateString()}`);
+    logger.info(`Current Moscow time: ${now.toLocaleTimeString()} (${currentHour}:00), Date: ${now.toLocaleDateString()}`);
     
     // Make sure all parkings are in the system favorites
     for (const parking of parkingData) {
@@ -457,10 +447,7 @@ async function collectParkingData() {
         
         // Update hourly data when hour changes (Moscow time)
         const newNow = new Date();
-        // Правильный расчет московского времени (UTC+3)
-        const newMoscowTime = new Date(newNow);
-        newMoscowTime.setUTCHours(newNow.getUTCHours() + 3);
-        const newHour = newMoscowTime.getHours();
+        let newHour = newNow.getHours();
         
         if (newHour !== lastUpdateHour) {
           await updateHourlyData(db);
@@ -470,9 +457,9 @@ async function collectParkingData() {
         }
         
         // Calculate time until next hour
-        const nextHour = new Date(newMoscowTime);
+        const nextHour = new Date(newNow);
         nextHour.setHours(newHour + 1, 0, 0, 0);
-        const waitTime = nextHour.getTime() - newMoscowTime.getTime();
+        const waitTime = nextHour.getTime() - newNow.getTime();
         
         logger.info(`Data collection complete. Waiting until next hour...`);
         logger.info(`Next update at ${nextHour.toLocaleTimeString()} (MSK), in ${Math.round(waitTime / 1000)} seconds`);

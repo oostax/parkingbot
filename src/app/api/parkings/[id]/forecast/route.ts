@@ -66,12 +66,9 @@ export async function GET(
     const uniqueFreeSpaces = new Set(hourlyData.map(data => data.free_spaces));
     console.log(`Unique free spaces values: ${Array.from(uniqueFreeSpaces).join(', ')}`);
     
-    // Используем текущий час в Москве (UTC+3)
+    // Используем текущий час в Москве (локальное время уже является московским)
     const now_date = new Date();
-    // Правильный расчет московского времени (UTC+3)
-    const moscowNow = new Date(now_date);
-    moscowNow.setUTCHours(now_date.getUTCHours() + 3);
-    const currentHour = moscowNow.getHours();
+    const currentHour = now_date.getHours();
     
     console.log(`Текущий час в Москве: ${currentHour}:00`);
     
@@ -150,10 +147,7 @@ function generateMockResponse(parkingId: string, now: number) {
   
   // Генерация прогнозов на 24 часа
   const currentDate = new Date();
-  // Правильный расчет московского времени (UTC+3)
-  const moscowNow = new Date(currentDate);
-  moscowNow.setUTCHours(currentDate.getUTCHours() + 3);
-  const currentHour = moscowNow.getHours();
+  const currentHour = currentDate.getHours();
   
   console.log(`Генерация мок-данных, текущий час в Москве: ${currentHour}:00`);
   
@@ -162,7 +156,7 @@ function generateMockResponse(parkingId: string, now: number) {
   
   for (let hour = 0; hour < 24; hour++) {
     const forecastDate = new Date();
-    forecastDate.setHours(hour);
+    forecastDate.setHours(hour, 0, 0, 0);
     
     // Определение шаблона заполненности на основе часа дня
     const hourOfDay = hour % 24;

@@ -5,13 +5,6 @@ import { query, checkConnection } from "@/lib/db";
 const CACHE_TIME = 900; // seconds (15 minutes)
 const cache: { data: any; timestamp: number } = { data: null, timestamp: 0 };
 
-interface DailyStats {
-  parkingId: string;
-  hour: number;
-  avgFreeSpaces: number;
-  avg_occupancy: number;
-}
-
 export async function GET(request: NextRequest) {
   try {
     // Проверяем наличие параметра noCache в запросе
@@ -37,27 +30,31 @@ export async function GET(request: NextRequest) {
     // Get the current hour
     const currentHour = new Date().getHours();
     
-    // Get occupancy data for all parkings for the current hour from SQLite
-    const stats: DailyStats[] = await query<DailyStats>(
+    // Get occupancy data for all parkings for the current hour from hourly_parking_data
+    const hourlyStats = await query(
       `SELECT 
-        parkingId, 
-        hour, 
-        avgFreeSpaces, 
-        avg_occupancy 
-       FROM daily_stats 
+        parking_id as parkingId, 
+        free_spaces as freeSpaces,
+        total_spaces as totalSpaces
+       FROM hourly_parking_data 
        WHERE hour = ?
-       ORDER BY parkingId`,
+       ORDER BY parking_id`,
       [currentHour]
     );
     
     // Format the data for easy consumption by the front-end
-    const occupancyData = stats.reduce((acc, stat) => {
+    const occupancyData = hourlyStats.reduce((acc, stat) => {
+      // Рассчитываем заполненность (occupancy) на основе свободных и общих мест
+      const occupancy = stat.totalSpaces > 0 
+        ? 1 - (stat.freeSpaces / stat.totalSpaces) 
+        : 0;
+        
       acc[stat.parkingId] = {
-        occupancy: stat.avg_occupancy,
-        freeSpaces: stat.avgFreeSpaces,
+        occupancy,
+        freeSpaces: stat.freeSpaces,
       };
       return acc;
-    }, {} as Record<string, { occupancy: number, freeSpaces: number }>);
+    }, {});
     
     // Update cache
     cache.data = { parkings: occupancyData };
@@ -65,7 +62,7 @@ export async function GET(request: NextRequest) {
     
     return NextResponse.json(cache.data);
   } catch (error) {
-    console.error(`Error fetching all parking stats from SQLite: ${error}`);
+    console.error(`Error fetching all parking stats: ${error}`);
     return NextResponse.json(
       { error: "Failed to fetch parking statistics", parkings: {} },
       { status: 500 }

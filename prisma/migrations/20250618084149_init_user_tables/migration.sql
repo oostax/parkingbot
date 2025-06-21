@@ -26,17 +26,6 @@ CREATE TABLE "hourly_parking_data" (
 );
 
 -- CreateTable
-CREATE TABLE "daily_stats" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "parkingId" TEXT NOT NULL,
-    "hour" INTEGER NOT NULL,
-    "avgFreeSpaces" REAL NOT NULL,
-    "avg_occupancy" REAL NOT NULL,
-    "sampleCount" INTEGER NOT NULL,
-    "lastUpdated" DATETIME NOT NULL
-);
-
--- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "username" TEXT,
@@ -124,9 +113,6 @@ CREATE UNIQUE INDEX "favorites_user_id_parking_id_key" ON "favorites"("user_id",
 
 -- CreateIndex
 CREATE UNIQUE INDEX "hourly_parking_data_parking_id_hour_key" ON "hourly_parking_data"("parking_id", "hour");
-
--- CreateIndex
-CREATE UNIQUE INDEX "daily_stats_parkingId_hour_key" ON "daily_stats"("parkingId", "hour");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
