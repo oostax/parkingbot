@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ParkingInfo, ParkingStats, Forecast } from "@/types/parking";
@@ -447,50 +447,197 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
     );
   };
 
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isFavoriteLoading, setIsFavoriteLoading] = useState(false);
+
+  const toggleFavorite = async () => {
+    setIsFavoriteLoading(true);
+    try {
+      await onToggleFavorite();
+    } finally {
+      setIsFavoriteLoading(false);
+    }
+  };
+
   return (
-    <Card className="w-full shadow-lg relative">
-      {parking.isFavorite && (
-        <div className="absolute top-2 right-2 z-10 bg-yellow-50 p-1.5 rounded-full shadow-sm">
-          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-        </div>
-      )}
-      <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
-        <div className="flex-1">
-          <div className="flex items-center">
-            <h3 className="font-bold text-lg">{parking.name}</h3>
-          </div>
-          <p className="text-sm text-muted-foreground">{parking.street} {parking.house}</p>
-          {parking.subway && (
-            <div className="text-xs mt-1 inline-block px-2 py-1 bg-blue-100 rounded-full">
-              Метро {parking.subway}
+    <div className="relative">
+      <Card className={`w-full max-w-md mx-auto overflow-hidden card-animated ${isExpanded ? 'shadow-lg' : ''}`}>
+        <CardHeader className="pb-2">
+          <div className="flex items-start justify-between">
+            <div>
+              <CardTitle className="text-lg font-bold flex items-center">
+                {parking.name}
+                {parking.isFavorite && (
+                  <Star className="h-4 w-4 ml-2 text-amber-500 fill-amber-500 animate-fadeInUp" />
+                )}
+              </CardTitle>
+              <CardDescription className="text-sm">
+                {parking.street} {parking.house}
+              </CardDescription>
+              {parking.subway && (
+                <div className="text-xs mt-1 inline-block px-2 py-1 bg-blue-100 rounded-full">
+                  Метро {parking.subway}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        <Button variant="ghost" size="sm" onClick={onClose} className="-mt-2 -mr-2">
-          <X className="h-4 w-4" />
-        </Button>
-      </CardHeader>
-      
-      <CardContent className="pb-2">
-        <Tabs defaultValue="status">
-          <TabsList className="w-full grid grid-cols-3">
-            <TabsTrigger value="status">Статус</TabsTrigger>
-            <TabsTrigger value="forecast">Прогноз</TabsTrigger>
-            <TabsTrigger value="recommendation">Рекомендация</TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="status" className="space-y-2 pt-2">
-            {isLoadingData || !realTimeData ? (
-              <div className="h-32 flex flex-col items-center justify-center text-center">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
-              </div>
-            ) : realTimeData && dataAvailable ? (
-              <>
-                {isStaleData && (
-                  <div className="mb-2 text-xs text-amber-600 bg-amber-50 p-1 rounded text-center">
-                    Данные могут быть устаревшими. <button 
-                      className="underline hover:text-amber-700"
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-full btn-animated"
+                onClick={toggleFavorite}
+              >
+                {isFavoriteLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : parking.isFavorite ? (
+                  <Heart className="h-4 w-4 text-red-500 fill-red-500" />
+                ) : (
+                  <HeartOff className="h-4 w-4" />
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-full btn-animated"
+                onClick={() => onClose()}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        
+        <CardContent className="pb-2">
+          <Tabs defaultValue="status">
+            <TabsList className="w-full grid grid-cols-3">
+              <TabsTrigger value="status">Статус</TabsTrigger>
+              <TabsTrigger value="forecast">Прогноз</TabsTrigger>
+              <TabsTrigger value="recommendation">Рекомендация</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="status" className="space-y-2 pt-2">
+              {isLoadingData || !realTimeData ? (
+                <div className="h-32 flex flex-col items-center justify-center text-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
+                </div>
+              ) : realTimeData && dataAvailable ? (
+                <>
+                  {isStaleData && (
+                    <div className="mb-2 text-xs text-amber-600 bg-amber-50 p-1 rounded text-center">
+                      Данные могут быть устаревшими. <button 
+                        className="underline hover:text-amber-700"
+                        onClick={() => {
+                          // Предотвращаем повторные запросы
+                          if (activeRequestsRef.current['liveData']) {
+                            return;
+                          }
+                          
+                          // Проверяем, не слишком ли часто отправляем запросы
+                          const lastRequestTime = lastRequestTimeRef.current['liveData'] || 0;
+                          const now = Date.now();
+                          if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
+                            toast({
+                              title: "Подождите",
+                              description: "Данные можно обновлять не чаще раза в 5 секунд",
+                              variant: "default",
+                            });
+                            return;
+                          }
+                          
+                          setIsLoadingData(true);
+                          setIsStaleData(false);
+                          activeRequestsRef.current['liveData'] = true;
+                          
+                          // Используем прямой fetch вместо вспомогательной функции
+                          const timestamp = new Date().getTime();
+                          fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`)
+                            .then(response => {
+                              if (!response.ok) {
+                                throw new Error(`Failed to fetch parking data: ${response.statusText}`);
+                              }
+                              return response.json();
+                            })
+                              .then(data => {
+                                if (data) {
+                                  if ('dataAvailable' in data && data.dataAvailable === false) {
+                                    setDataAvailable(false);
+                                    setRealTimeData(null);
+                                  } else {
+                                    setRealTimeData(data);
+                                    setDataAvailable(true);
+                                    setIsStaleData('isStale' in data && data.isStale === true);
+                                  }
+                                } else {
+                                  setDataAvailable(false);
+                                  setRealTimeData(null);
+                                }
+                                lastRequestTimeRef.current['liveData'] = now;
+                              })
+                            .catch(error => {
+                              console.error("Error fetching parking data:", error);
+                                setDataAvailable(false);
+                                setRealTimeData(null);
+                              })
+                              .finally(() => {
+                                setIsLoadingData(false);
+                                activeRequestsRef.current['liveData'] = false;
+                              });
+                        }}
+                      >
+                        Обновить
+                      </button>
+                    </div>
+                  )}
+                  <div className="flex gap-2 py-2">
+                    <div className={`flex-1 p-3 rounded-md ${getAvailabilityColor().bg} flex flex-col items-center`}>
+                      <div className="flex items-center justify-center gap-2">
+                        <span className={getAvailabilityColor().text}>
+                          <Car size={16} />
+                        </span>
+                        <p className={`text-sm font-medium ${getAvailabilityColor().text}`}>Свободно мест</p>
+                      </div>
+                      <p className={`text-xl font-bold ${getAvailabilityColor().text} mt-1 text-center`}>
+                        {realTimeData.freeSpaces} / {realTimeData.totalSpaces}
+                      </p>
+                    </div>
+                    
+                    {realTimeData.handicappedTotal > 0 && (
+                      <div className="flex-1 p-3 rounded-md bg-gray-100 flex flex-col items-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="text-gray-600">
+                            <Accessibility size={16} />
+                          </span>
+                          <p className="text-sm font-medium text-gray-600">Для людей с ограниченными возможностями</p>
+                        </div>
+                        <p className="text-xl font-bold text-gray-700 mt-1 text-center">
+                          {realTimeData.handicappedFree} / {realTimeData.handicappedTotal}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Occupancy progress bar */}
+                  {realTimeData.totalSpaces > 0 && (
+                    <div className="mt-2">
+                      <div className="w-full bg-gray-200 rounded-full h-2.5">
+                        <div 
+                          className={`${getStatusClass()} h-2.5 rounded-full`} 
+                          style={{ width: `${(realTimeData.freeSpaces / realTimeData.totalSpaces) * 100}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="h-32 flex items-center justify-center text-center">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">
+                      Данные о загруженности недоступны
+                    </p>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
                       onClick={() => {
                         // Предотвращаем повторные запросы
                         if (activeRequestsRef.current['liveData']) {
@@ -510,7 +657,6 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                         }
                         
                         setIsLoadingData(true);
-                        setIsStaleData(false);
                         activeRequestsRef.current['liveData'] = true;
                         
                         // Используем прямой fetch вместо вспомогательной функции
@@ -524,92 +670,66 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                           })
                             .then(data => {
                               if (data) {
-                                if ('dataAvailable' in data && data.dataAvailable === false) {
-                                  setDataAvailable(false);
-                                  setRealTimeData(null);
-                                } else {
-                                  setRealTimeData(data);
-                                  setDataAvailable(true);
-                                  setIsStaleData('isStale' in data && data.isStale === true);
-                                }
-                              } else {
+                              // Проверяем наличие флага dataAvailable
+                              if ('dataAvailable' in data && data.dataAvailable === false) {
                                 setDataAvailable(false);
                                 setRealTimeData(null);
+                              } else {
+                                setDataAvailable(true);
+                                // Проверяем наличие флага isStale
+                                setIsStaleData('isStale' in data && data.isStale === true);
+                                setRealTimeData(data);
+                              }
+                              } else {
+                                setDataAvailable(false);
+                              setRealTimeData(null);
                               }
                               lastRequestTimeRef.current['liveData'] = now;
                             })
                           .catch(error => {
                             console.error("Error fetching parking data:", error);
-                              setDataAvailable(false);
-                              setRealTimeData(null);
-                            })
+                            setDataAvailable(false);
+                            setRealTimeData(null);
+                          })
                             .finally(() => {
                               setIsLoadingData(false);
                               activeRequestsRef.current['liveData'] = false;
                             });
                       }}
                     >
-                      Обновить
-                    </button>
+                      <Loader2 className="h-3 w-3 mr-1" /> Обновить
+                    </Button>
                   </div>
-                )}
-                <div className="flex gap-2 py-2">
-                  <div className={`flex-1 p-3 rounded-md ${getAvailabilityColor().bg} flex flex-col items-center`}>
-                    <div className="flex items-center justify-center gap-2">
-                      <span className={getAvailabilityColor().text}>
-                        <Car size={16} />
-                      </span>
-                      <p className={`text-sm font-medium ${getAvailabilityColor().text}`}>Свободно мест</p>
-                    </div>
-                    <p className={`text-xl font-bold ${getAvailabilityColor().text} mt-1 text-center`}>
-                      {realTimeData.freeSpaces} / {realTimeData.totalSpaces}
-                    </p>
-                  </div>
-                  
-                  {realTimeData.handicappedTotal > 0 && (
-                    <div className="flex-1 p-3 rounded-md bg-gray-100 flex flex-col items-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span className="text-gray-600">
-                          <Accessibility size={16} />
-                        </span>
-                        <p className="text-sm font-medium text-gray-600">Для людей с ограниченными возможностями</p>
-                      </div>
-                      <p className="text-xl font-bold text-gray-700 mt-1 text-center">
-                        {realTimeData.handicappedFree} / {realTimeData.handicappedTotal}
-                      </p>
-                    </div>
-                  )}
                 </div>
-                
-                {/* Occupancy progress bar */}
-                {realTimeData.totalSpaces > 0 && (
-                  <div className="mt-2">
-                    <div className="w-full bg-gray-200 rounded-full h-2.5">
-                      <div 
-                        className={`${getStatusClass()} h-2.5 rounded-full`} 
-                        style={{ width: `${(realTimeData.freeSpaces / realTimeData.totalSpaces) * 100}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="h-32 flex items-center justify-center text-center">
-                <div className="text-center">
-                  <p className="text-sm text-muted-foreground mb-2">
-                    Данные о загруженности недоступны
+              )}
+            </TabsContent>
+            
+            <TabsContent value="forecast" className="pt-2">
+              {forecasts && forecasts.length > 0 ? (
+                renderForecastChart()
+              ) : isLoadingData ? (
+                <div className="h-32 flex flex-col items-center justify-center text-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
+                </div>
+              ) : (
+                <div className="h-32 flex flex-col items-center justify-center text-center">
+                  <Activity className="h-8 w-8 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Для данной парковки нет прогноза загруженности
                   </p>
                   <Button 
                     variant="outline" 
-                    size="sm" 
+                    size="sm"
+                    className="mt-2" 
                     onClick={() => {
                       // Предотвращаем повторные запросы
-                      if (activeRequestsRef.current['liveData']) {
+                      if (activeRequestsRef.current['forecasts']) {
                         return;
                       }
                       
-                      // Проверяем, не слишком ли часто отправляем запросы
-                      const lastRequestTime = lastRequestTimeRef.current['liveData'] || 0;
+                      // Проверяем интервал между запросами
+                      const lastRequestTime = lastRequestTimeRef.current['forecasts'] || 0;
                       const now = Date.now();
                       if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
                         toast({
@@ -621,190 +741,85 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                       }
                       
                       setIsLoadingData(true);
-                      activeRequestsRef.current['liveData'] = true;
+                      activeRequestsRef.current['forecasts'] = true;
                       
-                      // Используем прямой fetch вместо вспомогательной функции
-                      const timestamp = new Date().getTime();
-                      fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`)
-                        .then(response => {
-                          if (!response.ok) {
-                            throw new Error(`Failed to fetch parking data: ${response.statusText}`);
-                          }
-                          return response.json();
-                        })
-                          .then(data => {
-                            if (data) {
-                            // Проверяем наличие флага dataAvailable
-                            if ('dataAvailable' in data && data.dataAvailable === false) {
-                              setDataAvailable(false);
-                              setRealTimeData(null);
-                            } else {
-                              setDataAvailable(true);
-                              // Проверяем наличие флага isStale
-                              setIsStaleData('isStale' in data && data.isStale === true);
-                              setRealTimeData(data);
+                      setTimeout(() => {
+                        // Прямой запрос для отладки
+                        fetch(`/api/parkings/${parking.id}/forecast?noCache=true&t=${Date.now()}`)
+                          .then(response => {
+                            console.log("Forecast API status:", response.status);
+                            if (response.status === 404) {
+                              // Для 404 не выбрасываем ошибку, просто устанавливаем пустой массив
+                              console.log(`Нет данных прогноза для парковки ${parking.id} (404)`);
+                              setForecasts([]);
+                              lastRequestTimeRef.current['forecasts'] = now;
+                              return null; // Прерываем цепочку then
+                            } else if (!response.ok) {
+                              throw new Error(`Failed to fetch parking forecasts: ${response.statusText}`);
                             }
-                            } else {
-                              setDataAvailable(false);
-                            setRealTimeData(null);
-                            }
-                            lastRequestTimeRef.current['liveData'] = now;
+                            return response.json();
                           })
-                        .catch(error => {
-                          console.error("Error fetching parking data:", error);
-                          setDataAvailable(false);
-                          setRealTimeData(null);
-                        })
+                          .then(data => {
+                            if (!data) return; // Если прервали выше из-за 404, выходим
+                            
+                            console.log("Raw forecast data:", data);
+                            if (data.forecasts && data.forecasts.length > 0) {
+                              console.log(`Setting ${data.forecasts.length} forecasts`);
+                              setForecasts(data.forecasts);
+                            } else {
+                              console.warn("No forecasts in response:", data);
+                              setForecasts([]); // Устанавливаем пустой массив
+                            }
+                            lastRequestTimeRef.current['forecasts'] = now;
+                          })
+                          .catch(error => {
+                            console.error("Error fetching parking forecasts:", error);
+                          })
                           .finally(() => {
                             setIsLoadingData(false);
-                            activeRequestsRef.current['liveData'] = false;
+                            activeRequestsRef.current['forecasts'] = false;
                           });
+                      }, 300);
                     }}
                   >
                     <Loader2 className="h-3 w-3 mr-1" /> Обновить
                   </Button>
                 </div>
-              </div>
-            )}
-          </TabsContent>
-          
-          <TabsContent value="forecast" className="pt-2">
-            {forecasts && forecasts.length > 0 ? (
-              renderForecastChart()
-            ) : isLoadingData ? (
-              <div className="h-32 flex flex-col items-center justify-center text-center">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
-              </div>
-            ) : (
-              <div className="h-32 flex flex-col items-center justify-center text-center">
-                <Activity className="h-8 w-8 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground mt-2">
-                  Для данной парковки нет прогноза загруженности
-                </p>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  className="mt-2" 
-                  onClick={() => {
-                    // Предотвращаем повторные запросы
-                    if (activeRequestsRef.current['forecasts']) {
-                      return;
-                    }
-                    
-                    // Проверяем интервал между запросами
-                    const lastRequestTime = lastRequestTimeRef.current['forecasts'] || 0;
-                    const now = Date.now();
-                    if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
-                      toast({
-                        title: "Подождите",
-                        description: "Данные можно обновлять не чаще раза в 5 секунд",
-                        variant: "default",
-                      });
-                      return;
-                    }
-                    
-                    setIsLoadingData(true);
-                    activeRequestsRef.current['forecasts'] = true;
-                    
-                    setTimeout(() => {
-                      // Прямой запрос для отладки
-                      fetch(`/api/parkings/${parking.id}/forecast?noCache=true&t=${Date.now()}`)
-                        .then(response => {
-                          console.log("Forecast API status:", response.status);
-                          if (response.status === 404) {
-                            // Для 404 не выбрасываем ошибку, просто устанавливаем пустой массив
-                            console.log(`Нет данных прогноза для парковки ${parking.id} (404)`);
-                            setForecasts([]);
-                            lastRequestTimeRef.current['forecasts'] = now;
-                            return null; // Прерываем цепочку then
-                          } else if (!response.ok) {
-                            throw new Error(`Failed to fetch parking forecasts: ${response.statusText}`);
-                          }
-                          return response.json();
-                        })
-                        .then(data => {
-                          if (!data) return; // Если прервали выше из-за 404, выходим
-                          
-                          console.log("Raw forecast data:", data);
-                          if (data.forecasts && data.forecasts.length > 0) {
-                            console.log(`Setting ${data.forecasts.length} forecasts`);
-                            setForecasts(data.forecasts);
-                          } else {
-                            console.warn("No forecasts in response:", data);
-                            setForecasts([]); // Устанавливаем пустой массив
-                          }
-                          lastRequestTimeRef.current['forecasts'] = now;
-                        })
-                        .catch(error => {
-                          console.error("Error fetching parking forecasts:", error);
-                        })
-                        .finally(() => {
-                          setIsLoadingData(false);
-                          activeRequestsRef.current['forecasts'] = false;
-                        });
-                    }, 300);
-                  }}
-                >
-                  <Loader2 className="h-3 w-3 mr-1" /> Обновить
-                </Button>
-              </div>
-            )}
-          </TabsContent>
+              )}
+            </TabsContent>
 
-          <TabsContent value="recommendation" className="pt-2">
-            <ParkingRecommendation
-              parking={parking}
-              allParkings={allParkings}
-              onParkingSelect={(selectedParking) => {
-                onClose();
-                // Вызов обработчика выбора парковки в родительском компоненте
-                window.dispatchEvent(new CustomEvent('select-parking', { 
-                  detail: { parking: selectedParking } 
-                }));
-              }}
-            />
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-      
-      <CardFooter className="flex gap-2 pt-2">
-        {session ? (
-          <Button 
-            variant="outline"
-            className="flex-1 text-xs md:text-sm min-w-0"
-            onClick={onToggleFavorite}
-          >
-            {parking.isFavorite ? (
-              <>
-                <HeartOff className="mr-1 h-4 w-4 shrink-0" />
-                <span className="truncate">Удалить из избранного</span>
-              </>
-            ) : (
-              <>
-                <Heart className="mr-1 h-4 w-4 shrink-0" />
-                <span className="truncate">В избранное</span>
-              </>
-            )}
+            <TabsContent value="recommendation" className="pt-2">
+              <ParkingRecommendation
+                parking={parking}
+                allParkings={allParkings}
+                onParkingSelect={(selectedParking) => {
+                  onClose();
+                  // Вызов обработчика выбора парковки в родительском компоненте
+                  window.dispatchEvent(new CustomEvent('select-parking', { 
+                    detail: { parking: selectedParking } 
+                  }));
+                }}
+              />
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+        
+        <CardFooter className="flex justify-between items-center p-4 pt-0 gap-2">
+          <Button onClick={openInYandexMaps} className="w-[110px] whitespace-nowrap shrink-0 btn-animated">
+            <MapPin className="mr-2 h-4 w-4" /> Маршрут
           </Button>
-        ) : (
-          <Button 
-            variant="outline"
-            className="flex-1 text-xs md:text-sm min-w-0"
-            onClick={() => toast({
-              title: "Требуется авторизация",
-              description: "Войдите через Telegram, чтобы добавить парковку в избранное",
-              variant: "default",
-            })}
-          >
-            <Heart className="mr-1 h-4 w-4 shrink-0" />
-            <span className="truncate">В избранное</span>
-          </Button>
-        )}
-        <Button onClick={openInYandexMaps} className="w-[110px] whitespace-nowrap shrink-0">
-          <MapPin className="mr-2 h-4 w-4" /> Маршрут
-        </Button>
-      </CardFooter>
-    </Card>
+          
+          <div className="flex-1">
+            <Button 
+              variant="outline" 
+              className="w-full btn-animated"
+              onClick={() => setIsExpanded(!isExpanded)}
+            >
+              {isExpanded ? "Свернуть" : "Подробнее"}
+            </Button>
+          </div>
+        </CardFooter>
+      </Card>
+    </div>
   );
 }
