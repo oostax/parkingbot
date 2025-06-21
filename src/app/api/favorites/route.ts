@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/options";
+import { authOptions } from "@/app/api/auth/[...nextauth]/options";
 import fs from "fs";
 import path from "path";
 import { ParkingInfo } from "@/types/parking";

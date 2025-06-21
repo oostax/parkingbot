@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import FavoritesList from "@/components/favorites-list";
 import { getAllParkings } from "@/lib/parking-utils";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
+import { Search, Loader2 } from "lucide-react";
 import { StarIcon } from "lucide-react";
 import { User } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -59,8 +59,18 @@ const TelegramLoginFallback = () => (
   </Button>
 );
 
+// Компонент для отображения загрузки на весь экран
+const FullPageLoader = () => (
+  <div className="fixed inset-0 flex items-center justify-center bg-white bg-opacity-80 z-50">
+    <div className="text-center">
+      <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary" />
+      <p className="mt-4 text-gray-600">Загрузка приложения...</p>
+    </div>
+  </div>
+);
+
 export default function Home() {
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const { toast } = useToast();
   const [parkings, setParkings] = useState<ParkingInfo[]>([]);
   const [filteredParkings, setFilteredParkings] = useState<ParkingInfo[]>([]);
@@ -69,6 +79,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("map");
   const [searchQuery, setSearchQuery] = useState("");
   const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const router = useRouter();
   
   // Добавляем ref для отслеживания активных запросов
@@ -245,12 +256,19 @@ export default function Home() {
     setShowOnlyFavorites(prev => !prev);
   };
 
-  // Load parkings on initial render
+  // Load parkings on initial render and handle auth check
   useEffect(() => {
     initWebApp(); // Инициализация Telegram WebApp при загрузке
     
     // Устанавливаем начальную метку времени
     lastDataFetchRef.current = Date.now() - MIN_FETCH_INTERVAL;
+    
+    // Проверяем статус авторизации
+    if (sessionStatus === 'loading') {
+      return; // Ждем завершения проверки авторизации
+    }
+    
+    setAuthChecked(true); // Отмечаем, что проверка авторизации завершена
     
     // Загружаем парковки только если еще не загружены
     if (parkings.length === 0) {
@@ -271,7 +289,12 @@ export default function Home() {
     return () => {
       window.removeEventListener('select-parking', handleSelectParking as EventListener);
     };
-  }, [fetchParkings, handleParkingSelect, parkings.length]);
+  }, [fetchParkings, handleParkingSelect, parkings.length, sessionStatus]);
+
+  // Показываем индикатор загрузки, пока проверяется авторизация
+  if (sessionStatus === 'loading' || !authChecked) {
+    return <FullPageLoader />;
+  }
 
   return (
     <main className="min-h-screen flex flex-col">

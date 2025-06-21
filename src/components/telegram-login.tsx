@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "./ui/button";
 import { signIn } from "next-auth/react";
 import Script from "next/script";
@@ -15,6 +15,7 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
   const [isTelegramScriptLoaded, setIsTelegramScriptLoaded] = useState(false);
   const [isMiniApp, setIsMiniApp] = useState(false);
   const [isAutoLoggingIn, setIsAutoLoggingIn] = useState(false);
+  const authAttemptedRef = useRef(false);
   
   // Process data from Telegram widget
   const handleTelegramAuth = useCallback((userData: TelegramAuthData) => {
@@ -96,53 +97,11 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
     return false;
   }, [handleTelegramAuth]);
 
-  // Check if we're inside Telegram Mini App and attempt auto login
-  useEffect(() => {
-    console.log("TelegramLogin компонент монтируется");
+  // Проверка авторизации в Telegram Mini App
+  const checkTelegramMiniApp = useCallback(() => {
+    if (typeof window === 'undefined') return false;
     
-    // First try to parse data from URL if present
-    const processedFromUrl = parseTelegramWebAppDataFromUrl();
-    if (processedFromUrl) {
-      // If we successfully processed data from URL, no need to continue
-      console.log("Successfully processed Telegram data from URL");
-      return;
-    }
-    
-    // Check if we have stored auth data
-    const tryAutoLogin = async () => {
-      const storedAuthData = localStorage.getItem('tg_auth_data');
-      
-      if (storedAuthData) {
-        try {
-          console.log("Найдены сохранённые данные авторизации, пробуем автоматический вход");
-          setIsAutoLoggingIn(true);
-          
-          const userData = JSON.parse(storedAuthData) as TelegramAuthData;
-          // Check if token is still valid (auth_date not too old)
-          const authDate = userData.auth_date || 0;
-          const currentTime = Math.floor(Date.now() / 1000);
-          const maxTokenAge = 7 * 24 * 60 * 60; // 7 days
-          
-          if (currentTime - authDate < maxTokenAge) {
-            // Update the auth date to refresh the token
-            userData.auth_date = currentTime;
-            handleTelegramAuth(userData);
-            return;
-          } else {
-            // Token expired, remove it
-            console.log("Токен авторизации устарел, удаляем из localStorage");
-            localStorage.removeItem('tg_auth_data');
-            setIsAutoLoggingIn(false);
-          }
-        } catch (error) {
-          console.error("Error during auto-login:", error);
-          localStorage.removeItem('tg_auth_data');
-          setIsAutoLoggingIn(false);
-        }
-      }
-    };
-    
-    // Check if we're in Telegram Mini App
+    // Проверяем наличие Telegram WebApp API
     const isTelegram = Boolean(window?.Telegram?.WebApp);
     console.log("Is Telegram Mini App:", isTelegram);
     setIsMiniApp(isTelegram);
@@ -150,41 +109,112 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
     if (isTelegram && window.Telegram?.WebApp) {
       // We're running inside a Telegram Mini App
       console.log("Running in Telegram Mini App");
-      const telegramWebApp = window.Telegram.WebApp;
       
       try {
+        const telegramWebApp = window.Telegram.WebApp;
         console.log("WebApp initDataUnsafe:", telegramWebApp.initDataUnsafe);
         
         if (telegramWebApp?.initDataUnsafe?.user) {
           // Use the user data provided by Telegram WebApp
-          setIsAutoLoggingIn(true);
           console.log("User data found in Telegram WebApp:", telegramWebApp.initDataUnsafe.user);
           
           const userData = telegramWebApp.initDataUnsafe.user;
-          handleTelegramAuth({
+          const authData: TelegramAuthData = {
             id: userData.id,
             first_name: userData.first_name,
             last_name: userData.last_name,
             username: userData.username,
             photo_url: userData.photo_url,
             auth_date: Math.floor(Date.now() / 1000),
-          });
+          };
+          
+          // Авторизуемся с данными пользователя
+          setIsAutoLoggingIn(true);
+          handleTelegramAuth(authData);
+          return true;
         } else {
           console.warn("No user data in Telegram WebApp initDataUnsafe");
         }
       } catch (error) {
         console.error("Ошибка при чтении данных Telegram WebApp:", error);
       }
-    } else {
-      // Try auto login from stored auth data
-      console.log("Not in Telegram Mini App, trying auto login");
-      tryAutoLogin();
     }
+    
+    return false;
+  }, [handleTelegramAuth]);
+
+  // Попытка автоматического входа
+  const tryAutoLogin = useCallback(async () => {
+    const storedAuthData = localStorage.getItem('tg_auth_data');
+    
+    if (storedAuthData) {
+      try {
+        console.log("Найдены сохранённые данные авторизации, пробуем автоматический вход");
+        setIsAutoLoggingIn(true);
+        
+        const userData = JSON.parse(storedAuthData) as TelegramAuthData;
+        // Check if token is still valid (auth_date not too old)
+        const authDate = userData.auth_date || 0;
+        const currentTime = Math.floor(Date.now() / 1000);
+        const maxTokenAge = 7 * 24 * 60 * 60; // 7 days
+        
+        if (currentTime - authDate < maxTokenAge) {
+          // Update the auth date to refresh the token
+          userData.auth_date = currentTime;
+          handleTelegramAuth(userData);
+          return true;
+        } else {
+          // Token expired, remove it
+          console.log("Токен авторизации устарел, удаляем из localStorage");
+          localStorage.removeItem('tg_auth_data');
+          setIsAutoLoggingIn(false);
+        }
+      } catch (error) {
+        console.error("Error during auto-login:", error);
+        localStorage.removeItem('tg_auth_data');
+        setIsAutoLoggingIn(false);
+      }
+    }
+    
+    return false;
+  }, [handleTelegramAuth]);
+
+  // Инициализация авторизации при монтировании компонента
+  useEffect(() => {
+    console.log("TelegramLogin компонент монтируется");
+    
+    // Избегаем повторных попыток авторизации
+    if (authAttemptedRef.current) {
+      console.log("Авторизация уже была выполнена ранее");
+      return;
+    }
+    
+    authAttemptedRef.current = true;
+    
+    // Приоритет методов авторизации:
+    // 1. Данные из URL (tgWebAppData)
+    // 2. Telegram Mini App API (window.Telegram.WebApp)
+    // 3. Сохраненные данные в localStorage
+    
+    const processedFromUrl = parseTelegramWebAppDataFromUrl();
+    if (processedFromUrl) {
+      console.log("Successfully processed Telegram data from URL");
+      return;
+    }
+    
+    const processedFromMiniApp = checkTelegramMiniApp();
+    if (processedFromMiniApp) {
+      console.log("Successfully processed Telegram Mini App data");
+      return;
+    }
+    
+    console.log("Not in Telegram Mini App, trying auto login");
+    tryAutoLogin();
     
     return () => {
       console.log("TelegramLogin компонент размонтируется");
     };
-  }, [handleTelegramAuth, parseTelegramWebAppDataFromUrl]);
+  }, [parseTelegramWebAppDataFromUrl, checkTelegramMiniApp, tryAutoLogin]);
 
   // Function to render the Telegram login widget
   const renderTelegramLoginWidget = useCallback(() => {
