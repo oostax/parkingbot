@@ -35,8 +35,11 @@ export default function UserProfile() {
           return res.json();
         })
         .then(data => {
+          console.log("Fetched profile data:", data);
           if (data.profile) {
             setUserProfile(data.profile);
+          } else {
+            console.error("Profile data missing in API response");
           }
         })
         .catch(err => {
