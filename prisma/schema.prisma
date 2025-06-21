@@ -70,6 +70,8 @@ model User {
   achievements   Achievement[]
   transactions   TokenTransaction[]
   districts      UserDistrict[]
+
+  @@map("User")
 }
 
 model UserProfile {
