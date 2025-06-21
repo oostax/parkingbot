@@ -201,7 +201,14 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
             }
           } else {
             console.log(`Нет прогнозов для парковки ${parking.id}`);
+            // Устанавливаем пустой массив для forecasts, чтобы компонент знал, что данные загружены
+            setForecasts([]);
           }
+          lastRequestTimeRef.current['forecasts'] = Date.now();
+        } else if (response.status === 404) {
+          // Для 404 ошибки (нет данных) не показываем ошибку, просто устанавливаем пустой массив
+          console.log(`Нет данных прогноза для парковки ${parking.id} (404)`);
+          setForecasts([]);
           lastRequestTimeRef.current['forecasts'] = Date.now();
         } else {
           console.error(`Ошибка ответа API прогноза: ${response.status}`);
@@ -347,10 +354,20 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
   };
 
   const renderForecastChart = () => {
-    if (forecasts.length === 0) {
+    if (isLoadingData && forecasts.length === 0) {
+      // Данные еще загружаются
       return (
         <div className="text-center py-4 text-sm text-gray-500">
           Данные о прогнозе загруженности загружаются...
+        </div>
+      );
+    }
+    
+    // Если данные загружены, но пусты - значит, прогнозов нет
+    if (!isLoadingData && forecasts.length === 0) {
+      return (
+        <div className="text-center py-4 text-sm text-gray-500">
+          Для данной парковки нет прогноза загруженности
         </div>
       );
     }
@@ -663,7 +680,7 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
               <div className="h-32 flex flex-col items-center justify-center text-center">
                 <Activity className="h-8 w-8 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground mt-2">
-                  Данные о прогнозе недоступны
+                  Для данной парковки нет прогноза загруженности
                 </p>
                 <Button 
                   variant="outline" 
@@ -695,18 +712,27 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
                       fetch(`/api/parkings/${parking.id}/forecast?noCache=true&t=${Date.now()}`)
                         .then(response => {
                           console.log("Forecast API status:", response.status);
-                          if (!response.ok) {
+                          if (response.status === 404) {
+                            // Для 404 не выбрасываем ошибку, просто устанавливаем пустой массив
+                            console.log(`Нет данных прогноза для парковки ${parking.id} (404)`);
+                            setForecasts([]);
+                            lastRequestTimeRef.current['forecasts'] = now;
+                            return null; // Прерываем цепочку then
+                          } else if (!response.ok) {
                             throw new Error(`Failed to fetch parking forecasts: ${response.statusText}`);
                           }
                           return response.json();
                         })
                         .then(data => {
+                          if (!data) return; // Если прервали выше из-за 404, выходим
+                          
                           console.log("Raw forecast data:", data);
                           if (data.forecasts && data.forecasts.length > 0) {
                             console.log(`Setting ${data.forecasts.length} forecasts`);
                             setForecasts(data.forecasts);
                           } else {
                             console.warn("No forecasts in response:", data);
+                            setForecasts([]); // Устанавливаем пустой массив
                           }
                           lastRequestTimeRef.current['forecasts'] = now;
                         })

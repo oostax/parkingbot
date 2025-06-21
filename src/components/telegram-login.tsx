@@ -6,6 +6,7 @@ import { signIn } from "next-auth/react";
 import Script from "next/script";
 import { Loader2 } from "lucide-react";
 import type { TelegramAuthData } from "@/types/telegram";
+import { useSearchParams } from "next/navigation";
 
 interface TelegramLoginProps {
   onSuccess?: () => void;
@@ -15,9 +16,12 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
   const [isTelegramScriptLoaded, setIsTelegramScriptLoaded] = useState(false);
   const [isMiniApp, setIsMiniApp] = useState(false);
   const [isAutoLoggingIn, setIsAutoLoggingIn] = useState(false);
+  const searchParams = useSearchParams();
   
   // Process data from Telegram widget
   const handleTelegramAuth = useCallback((userData: TelegramAuthData) => {
+    console.log("Telegram auth data received:", userData);
+    
     // Store auth data in localStorage for future auto-login
     if (userData) {
       localStorage.setItem('tg_auth_data', JSON.stringify(userData));
@@ -27,6 +31,7 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
       telegramData: JSON.stringify(userData),
       redirect: false,
     }).then((res) => {
+      console.log("Sign in result:", res);
       if (res?.ok && onSuccess) {
         onSuccess();
       }
@@ -35,8 +40,67 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
     });
   }, [onSuccess]);
 
+  // Parse Telegram WebApp data from URL hash
+  const parseTelegramWebAppDataFromUrl = useCallback(() => {
+    // Check for hash in URL (Telegram WebApp data)
+    const hash = window.location.hash;
+    console.log("URL hash:", hash);
+    
+    if (hash && hash.includes('tgWebAppData=')) {
+      try {
+        // Extract WebApp data
+        const tgWebAppDataMatch = hash.match(/tgWebAppData=([^&]*)/);
+        if (tgWebAppDataMatch && tgWebAppDataMatch[1]) {
+          console.log("Found tgWebAppData in URL");
+          const tgWebAppDataStr = decodeURIComponent(tgWebAppDataMatch[1]);
+          
+          // Extract user data
+          const userMatch = tgWebAppDataStr.match(/user=([^&]*)/);
+          if (userMatch && userMatch[1]) {
+            try {
+              // Decode and parse user JSON
+              const userDataStr = decodeURIComponent(userMatch[1]);
+              const userData = JSON.parse(userDataStr);
+              console.log("Parsed user data from URL:", userData);
+              
+              if (userData && userData.id) {
+                // Create auth data for sign in
+                const authData: TelegramAuthData = {
+                  id: userData.id,
+                  first_name: userData.first_name,
+                  last_name: userData.last_name,
+                  username: userData.username,
+                  photo_url: userData.photo_url,
+                  auth_date: Math.floor(Date.now() / 1000),
+                };
+                
+                // Authorize with this data
+                handleTelegramAuth(authData);
+                return true;
+              }
+            } catch (e) {
+              console.error("Error parsing WebApp user data:", e);
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Error processing WebApp data from URL:", e);
+      }
+    }
+    
+    return false;
+  }, [handleTelegramAuth]);
+
   // Check if we're inside Telegram Mini App and attempt auto login
   useEffect(() => {
+    // First try to parse data from URL if present
+    const processedFromUrl = parseTelegramWebAppDataFromUrl();
+    if (processedFromUrl) {
+      // If we successfully processed data from URL, no need to continue
+      console.log("Successfully processed Telegram data from URL");
+      return;
+    }
+    
     // Check if we have stored auth data
     const tryAutoLogin = async () => {
       const storedAuthData = localStorage.getItem('tg_auth_data');
@@ -69,16 +133,22 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
       }
     };
     
+    // Check if we're in Telegram Mini App
     const isTelegram = Boolean(window?.Telegram?.WebApp);
+    console.log("Is Telegram Mini App:", isTelegram);
     setIsMiniApp(isTelegram);
 
     if (isTelegram && window.Telegram?.WebApp) {
-      // We're running inside a Telegram Mini App, get user info from Telegram WebApp API
+      // We're running inside a Telegram Mini App
+      console.log("Running in Telegram Mini App");
       const telegramWebApp = window.Telegram.WebApp;
+      console.log("WebApp initDataUnsafe:", telegramWebApp.initDataUnsafe);
       
       if (telegramWebApp?.initDataUnsafe?.user) {
         // Use the user data provided by Telegram WebApp
         setIsAutoLoggingIn(true);
+        console.log("User data found in Telegram WebApp:", telegramWebApp.initDataUnsafe.user);
+        
         const userData = telegramWebApp.initDataUnsafe.user;
         handleTelegramAuth({
           id: userData.id,
@@ -88,12 +158,15 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
           photo_url: userData.photo_url,
           auth_date: Math.floor(Date.now() / 1000),
         });
+      } else {
+        console.warn("No user data in Telegram WebApp initDataUnsafe");
       }
     } else {
       // Try auto login from stored auth data
+      console.log("Not in Telegram Mini App, trying auto login");
       tryAutoLogin();
     }
-  }, [handleTelegramAuth]);
+  }, [handleTelegramAuth, parseTelegramWebAppDataFromUrl]);
 
   // Function to render the Telegram login widget
   const renderTelegramLoginWidget = useCallback(() => {

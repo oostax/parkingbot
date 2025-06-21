@@ -19,9 +19,10 @@ type RouteParams = { id: string };
 
 export async function GET(
   request: NextRequest, 
-  { params }: { params: RouteParams }
+  context: { params: RouteParams }
 ): Promise<Response> {
   try {
+    const params = await context.params;
     const parkingId = params.id;
     
     // Проверяем наличие параметра noCache в запросе

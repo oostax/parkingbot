@@ -11,10 +11,11 @@ type RouteParams = { id: string };
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: RouteParams }
+  context: { params: RouteParams }
 ): Promise<Response> {
   try {
     const session = await getServerSession(authOptions);
+    const params = await context.params;
     const parkingId = params.id;
 
     // Read parking data directly from the filesystem instead of using fetch
