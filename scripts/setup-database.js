@@ -163,6 +163,7 @@ function createDatabaseTables() {
   
   try {
     const db = new sqlite3.Database(DB_PATH);
+    const { nanoid } = require('nanoid');
     
     // Создание таблицы User
     db.serialize(() => {
@@ -337,85 +338,6 @@ function createDatabaseTables() {
           console.error('❌ Ошибка при создании таблицы Challenge:', err);
         } else {
           console.log('✅ Таблица Challenge создана или уже существует');
-          
-          // Добавляем демо челленджи сразу после создания таблицы
-          try {
-            const { nanoid } = require('nanoid');
-            
-            // Текущая дата для стартовых дат
-            const now = new Date();
-            
-            // Дата окончания через 7 дней
-            const endDate = new Date();
-            endDate.setDate(now.getDate() + 7);
-            
-            // Подготовка тестовых челленджей
-            const challenges = [
-              {
-                id: nanoid(),
-                title: "Посетить 5 парковок",
-                description: "Посетите 5 разных парковок в течение недели и получите бонус",
-                reward: 50,
-                startDate: now.toISOString(),
-                endDate: endDate.toISOString(),
-                isActive: 1,
-                type: "visit_parks",
-                requirement: 5
-              },
-              {
-                id: nanoid(),
-                title: "Ежедневный вход",
-                description: "Заходите в приложение 5 дней подряд",
-                reward: 30,
-                startDate: now.toISOString(),
-                endDate: endDate.toISOString(),
-                isActive: 1,
-                type: "daily_login",
-                requirement: 5
-              },
-              {
-                id: nanoid(),
-                title: "Пригласите друга",
-                description: "Пригласите друга в приложение и получите бонус",
-                reward: 100,
-                startDate: now.toISOString(),
-                endDate: endDate.toISOString(),
-                isActive: 1,
-                type: "invite_friends",
-                requirement: 1
-              }
-            ];
-            
-            // Подготавливаем запрос для вставки
-            const insertStatement = `
-              INSERT OR REPLACE INTO Challenge 
-              (id, title, description, reward, startDate, endDate, isActive, type, requirement) 
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `;
-            
-            // Вставляем каждый челлендж
-            challenges.forEach(challenge => {
-              db.run(insertStatement, [
-                challenge.id,
-                challenge.title,
-                challenge.description,
-                challenge.reward,
-                challenge.startDate,
-                challenge.endDate,
-                challenge.isActive,
-                challenge.type,
-                challenge.requirement
-              ], (err) => {
-                if (err) {
-                  console.error(`❌ Ошибка при добавлении челленджа "${challenge.title}":`, err);
-                } else {
-                  console.log(`✅ Челлендж "${challenge.title}" добавлен`);
-                }
-              });
-            });
-          } catch (error) {
-            console.error('❌ Ошибка при добавлении демонстрационных челленджей:', error);
-          }
         }
       });
 
@@ -437,6 +359,84 @@ function createDatabaseTables() {
       });
     });
     
+    // Добавляем демо челленджи после создания всех таблиц
+    try {
+      // Текущая дата для стартовых дат
+      const now = new Date();
+      
+      // Дата окончания через 7 дней
+      const endDate = new Date();
+      endDate.setDate(now.getDate() + 7);
+      
+      // Подготовка тестовых челленджей
+      const challenges = [
+        {
+          id: nanoid(),
+          title: "Посетить 5 парковок",
+          description: "Посетите 5 разных парковок в течение недели и получите бонус",
+          reward: 50,
+          startDate: now.toISOString(),
+          endDate: endDate.toISOString(),
+          isActive: 1,
+          type: "visit_parks",
+          requirement: 5
+        },
+        {
+          id: nanoid(),
+          title: "Ежедневный вход",
+          description: "Заходите в приложение 5 дней подряд",
+          reward: 30,
+          startDate: now.toISOString(),
+          endDate: endDate.toISOString(),
+          isActive: 1,
+          type: "daily_login",
+          requirement: 5
+        },
+        {
+          id: nanoid(),
+          title: "Пригласите друга",
+          description: "Пригласите друга в приложение и получите бонус",
+          reward: 100,
+          startDate: now.toISOString(),
+          endDate: endDate.toISOString(),
+          isActive: 1,
+          type: "invite_friends",
+          requirement: 1
+        }
+      ];
+      
+      // Подготавливаем запрос для вставки
+      const insertStatement = `
+        INSERT OR REPLACE INTO Challenge 
+        (id, title, description, reward, startDate, endDate, isActive, type, requirement) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      
+      // Вставляем каждый челлендж
+      challenges.forEach(challenge => {
+        db.run(insertStatement, [
+          challenge.id,
+          challenge.title,
+          challenge.description,
+          challenge.reward,
+          challenge.startDate,
+          challenge.endDate,
+          challenge.isActive,
+          challenge.type,
+          challenge.requirement
+        ], (err) => {
+          if (err) {
+            console.error(`❌ Ошибка при добавлении челленджа "${challenge.title}":`, err);
+          } else {
+            console.log(`✅ Челлендж "${challenge.title}" добавлен`);
+          }
+        });
+      });
+    } catch (error) {
+      console.error('❌ Ошибка при добавлении демонстрационных челленджей:', error);
+    }
+    
+    // Закрываем соединение с базой данных в самом конце
     db.close((err) => {
       if (err) {
         console.error('❌ Ошибка при закрытии соединения с базой данных:', err);
