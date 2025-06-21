@@ -103,7 +103,7 @@ export default function Leaderboard({ currentUserId }: LeaderboardProps) {
                     {entry.avatarUrl ? (
                       <AvatarImage src={entry.avatarUrl} alt={entry.displayName} />
                     ) : null}
-                    <AvatarFallback>{entry.displayName.substring(0, 2).toUpperCase()}</AvatarFallback>
+                    <AvatarFallback>{entry.displayName && entry.displayName.substring(0, 2).toUpperCase() || "US"}</AvatarFallback>
                   </Avatar>
                   <div className="flex-1">
                     <div className="flex items-center">

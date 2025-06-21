@@ -326,12 +326,15 @@ function createDatabaseTables() {
           id TEXT PRIMARY KEY,
           title TEXT NOT NULL,
           description TEXT NOT NULL,
+          imageUrl TEXT,
           reward INTEGER NOT NULL,
           startDate TEXT NOT NULL,
           endDate TEXT NOT NULL,
           isActive INTEGER DEFAULT 1,
           type TEXT NOT NULL,
-          requirement INTEGER NOT NULL
+          requirement INTEGER NOT NULL,
+          parkIds TEXT,
+          districtIds TEXT
         )
       `, (err) => {
         if (err) {
@@ -374,42 +377,51 @@ function createDatabaseTables() {
           id: nanoid(),
           title: "Посетить 5 парковок",
           description: "Посетите 5 разных парковок в течение недели и получите бонус",
+          imageUrl: null,
           reward: 50,
           startDate: now.toISOString(),
           endDate: endDate.toISOString(),
           isActive: 1,
           type: "visit_parks",
-          requirement: 5
+          requirement: 5,
+          parkIds: null,
+          districtIds: null
         },
         {
           id: nanoid(),
           title: "Ежедневный вход",
           description: "Заходите в приложение 5 дней подряд",
+          imageUrl: null,
           reward: 30,
           startDate: now.toISOString(),
           endDate: endDate.toISOString(),
           isActive: 1,
           type: "daily_login",
-          requirement: 5
+          requirement: 5,
+          parkIds: null,
+          districtIds: null
         },
         {
           id: nanoid(),
           title: "Пригласите друга",
           description: "Пригласите друга в приложение и получите бонус",
+          imageUrl: null,
           reward: 100,
           startDate: now.toISOString(),
           endDate: endDate.toISOString(),
           isActive: 1,
           type: "invite_friends",
-          requirement: 1
+          requirement: 1,
+          parkIds: null,
+          districtIds: null
         }
       ];
       
       // Подготавливаем запрос для вставки
       const insertStatement = `
         INSERT OR REPLACE INTO Challenge 
-        (id, title, description, reward, startDate, endDate, isActive, type, requirement) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, title, description, imageUrl, reward, startDate, endDate, isActive, type, requirement, parkIds, districtIds) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       
       // Вставляем каждый челлендж
@@ -418,12 +430,15 @@ function createDatabaseTables() {
           challenge.id,
           challenge.title,
           challenge.description,
+          challenge.imageUrl || null,
           challenge.reward,
           challenge.startDate,
           challenge.endDate,
           challenge.isActive,
           challenge.type,
-          challenge.requirement
+          challenge.requirement,
+          challenge.parkIds || null,
+          challenge.districtIds || null
         ], (err) => {
           if (err) {
             console.error(`❌ Ошибка при добавлении челленджа "${challenge.title}":`, err);

@@ -216,7 +216,7 @@ export default function UserProfile() {
           <div className="flex items-center gap-4">
             <Avatar className="h-16 w-16 border-2 border-primary">
               <AvatarImage src={userProfile.avatarUrl || session.user?.image || ""} alt={userProfile.displayName} />
-              <AvatarFallback>{userProfile.displayName.substring(0, 2).toUpperCase()}</AvatarFallback>
+              <AvatarFallback>{userProfile.displayName && userProfile.displayName.substring(0, 2).toUpperCase() || "US"}</AvatarFallback>
             </Avatar>
             <div className="flex-1">
               <div className="flex items-center gap-2">
