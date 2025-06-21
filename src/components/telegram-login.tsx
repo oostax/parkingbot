@@ -1,61 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "./ui/button";
 import { signIn } from "next-auth/react";
 import Script from "next/script";
 import { Loader2 } from "lucide-react";
+import type { TelegramAuthData } from "@/types/telegram";
 
 interface TelegramLoginProps {
   onSuccess?: () => void;
-}
-
-// Define TypeScript interfaces for Telegram auth data
-interface TelegramAuthData {
-  id: string | number;
-  first_name?: string;
-  last_name?: string;
-  username?: string;
-  photo_url?: string;
-  auth_date: number;
-  [key: string]: string | number | undefined;
-}
-
-// Add types for Telegram Web App
-interface TelegramLoginWidget {
-  new (
-    element: HTMLElement, 
-    options: {
-      botName: string;
-      buttonSize: 'large' | 'medium' | 'small';
-      cornerRadius: number;
-      requestAccess: 'write' | 'read';
-      usePic: boolean;
-      lang: string;
-      onAuth: (user: TelegramAuthData) => void;
-    }
-  ): unknown;
-}
-
-declare global {
-  interface Window {
-    Telegram?: {
-      WebApp?: {
-        initDataUnsafe: {
-          user?: {
-            id: number;
-            first_name: string;
-            last_name?: string;
-            username?: string;
-            photo_url?: string;
-          };
-        };
-      };
-      Login: {
-        Widget: TelegramLoginWidget;
-      };
-    };
-  }
 }
 
 export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {

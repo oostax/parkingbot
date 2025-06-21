@@ -111,11 +111,13 @@ const processApiData = (data: any): Record<string, number | boolean> => {
 };
 
 // Main API handler
+// Определяем типы параметров
+type RouteParams = { id: string };
+
 export async function GET(
   request: NextRequest,
-  context: { params: { id: string } }
-) {
-  const params = await context.params;
+  { params }: { params: RouteParams }
+): Promise<Response> {
   const parkingId = params.id;
   
   // Проверяем наличие параметра noCache в запросе

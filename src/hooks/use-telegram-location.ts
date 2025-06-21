@@ -1,17 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-// Определение типов для Telegram WebApp API
-declare global {
-  interface Window {
-    Telegram?: {
-      WebApp: any;
-    };
-    TelegramWebviewProxy?: {
-      postEvent: (eventName: string, eventData?: any) => void;
-    };
-  }
-}
-
 interface TelegramLocationData {
   latitude: number;
   longitude: number;
