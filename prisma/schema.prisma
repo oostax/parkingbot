@@ -69,7 +69,7 @@ model UserProfile {
   referralsCount       Int?    @default(0)
   challengesCompleted  Int?    @default(0)
   districtsVisited     String? @default("[]")
-  user                 User?   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user                 User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model UserDistrict {
@@ -82,47 +82,47 @@ model UserDistrict {
 }
 
 model Achievement {
-  id            String @id @default(cuid())
+  id            String  @id @default(cuid())
   userId        String
   achievementId String
-  earned        Int?   @default(0)
+  earned        Int?    @default(0)
   earnedAt      String?
-  user          User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user          User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([userId, achievementId], map: "sqlite_autoindex_Achievement_2")
 }
 
 model TokenTransaction {
-  id          String @id @default(cuid())
+  id          String  @id @default(cuid())
   userId      String
   amount      Int
   type        String
   description String
   createdAt   String? @default("CURRENT_TIMESTAMP")
-  user        User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user        User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model Challenge {
   id          String                @id @default(cuid())
   title       String
   description String
-  imageUrl    String?
   reward      Int
   startDate   String
   endDate     String
   isActive    Int?                  @default(1)
   type        String
   requirement Int
-  parkIds     String?               // JSON массив с ID парковок
-  districtIds String?               // JSON массив с ID районов
+  districtIds String?
+  imageUrl    String?
+  parkIds     String?
   completions ChallengeCompletion[]
 }
 
 model ChallengeCompletion {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   challengeId String
   userId      String
-  completedAt String?  @default("CURRENT_TIMESTAMP")
+  completedAt String?   @default("CURRENT_TIMESTAMP")
   challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([challengeId, userId], map: "sqlite_autoindex_ChallengeCompletion_2")
