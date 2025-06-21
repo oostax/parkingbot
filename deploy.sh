@@ -22,18 +22,81 @@ warn() {
   echo -e "${YELLOW}[$(date '+%Y-%m-%d %H:%M:%S')] WARNING: $1${NC}"
 }
 
-# Проверка наличия необходимых команд
-check_command() {
-  if ! command -v $1 &> /dev/null; then
-    error "$1 не установлен. Установите его с помощью apt install $1"
-    exit 1
+# Функция для установки необходимых зависимостей
+install_dependencies() {
+  log "Проверка и установка необходимых зависимостей..."
+  
+  # Определение дистрибутива Linux
+  if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+  else
+    OS=$(uname -s)
   fi
+  
+  log "Определен дистрибутив: $OS"
+  
+  # Проверка и установка curl
+  if ! command -v curl &> /dev/null; then
+    log "Установка curl..."
+    if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
+      apt update && apt install -y curl
+    elif [ "$OS" = "centos" ] || [ "$OS" = "rhel" ] || [ "$OS" = "fedora" ]; then
+      yum install -y curl
+    else
+      error "Неизвестный дистрибутив. Установите curl вручную."
+      exit 1
+    fi
+  fi
+  
+  # Проверка и установка Node.js и npm
+  if ! command -v node &> /dev/null; then
+    log "Node.js не найден. Установка Node.js и npm..."
+    
+    # Установка Node.js 18.x LTS
+    if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
+      curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      apt install -y nodejs
+    elif [ "$OS" = "centos" ] || [ "$OS" = "rhel" ] || [ "$OS" = "fedora" ]; then
+      curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
+      yum install -y nodejs
+    else
+      error "Неизвестный дистрибутив. Установите Node.js вручную."
+      exit 1
+    fi
+    
+    log "Node.js и npm установлены."
+  fi
+  
+  # Проверка и установка PM2
+  if ! command -v pm2 &> /dev/null; then
+    log "PM2 не найден. Установка PM2..."
+    npm install -g pm2
+    log "PM2 установлен."
+  fi
+  
+  log "Все необходимые зависимости установлены."
 }
 
-# Проверка наличия необходимых команд
-check_command node
-check_command npm
-check_command pm2
+# Проверка и установка зависимостей
+install_dependencies
+
+# Проверка наличия необходимых команд после установки
+log "Проверка наличия необходимых команд..."
+if ! command -v node &> /dev/null; then
+  error "Node.js не установлен. Установите его вручную."
+  exit 1
+fi
+
+if ! command -v npm &> /dev/null; then
+  error "npm не установлен. Установите его вручную."
+  exit 1
+fi
+
+if ! command -v pm2 &> /dev/null; then
+  error "PM2 не установлен. Установите его вручную: npm install -g pm2"
+  exit 1
+fi
 
 # Определение директории проекта
 PROJECT_DIR=$(pwd)
@@ -45,13 +108,13 @@ WEB_USER="www-data"
 log "Пользователь веб-сервера: $WEB_USER"
 
 # Установка зависимостей
-log "Установка зависимостей..."
+log "Установка зависимостей проекта..."
 npm install
 if [ $? -ne 0 ]; then
   error "Ошибка при установке зависимостей"
   exit 1
 fi
-log "Зависимости успешно установлены"
+log "Зависимости проекта успешно установлены"
 
 # Создание директории для базы данных, если она не существует
 log "Проверка наличия директории для базы данных..."
