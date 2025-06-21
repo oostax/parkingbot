@@ -16,47 +16,73 @@ export async function GET(request: NextRequest) {
 
     const userId = session.user.id;
 
-    // Получаем профиль пользователя
-    const userProfile = await prisma.userProfile.findUnique({
-      where: { userId },
-      include: {
-        user: true,
-      },
-    });
-
-    if (!userProfile) {
-      // Если профиль не найден, возвращаем базовый профиль
-      return NextResponse.json({
-        tokenBalance: 0,
-        status: "Regular",
-        totalParksVisited: 0,
-        uniqueParksVisited: 0,
-        consecutiveLoginDays: 1,
-        totalTokensEarned: 0,
-        totalTokensSpent: 0,
-        username: session.user.name || "Пользователь",
+    try {
+      // Пробуем получить профиль пользователя
+      const userProfile = await prisma.userProfile.findUnique({
+        where: { userId },
+        include: {
+          user: true,
+        },
       });
+
+      if (!userProfile) {
+        console.log(`Профиль не найден для пользователя ${userId}, создаю новый профиль`);
+        
+        // Создаем профиль, если его нет
+        const newProfile = await prisma.userProfile.create({
+          data: {
+            userId: userId,
+            tokenBalance: 0,
+            status: "Regular",
+            totalParksVisited: 0,
+            uniqueParksVisited: 0,
+            consecutiveLoginDays: 1,
+            totalTokensEarned: 0,
+            totalTokensSpent: 0,
+            referralsCount: 0,
+            challengesCompleted: 0,
+          },
+        });
+
+        // Возвращаем созданный профиль
+        return NextResponse.json({
+          tokenBalance: newProfile.tokenBalance || 0,
+          status: newProfile.status || "Regular",
+          totalParksVisited: newProfile.totalParksVisited || 0,
+          uniqueParksVisited: newProfile.uniqueParksVisited || 0,
+          consecutiveLoginDays: newProfile.consecutiveLoginDays || 1,
+          totalTokensEarned: newProfile.totalTokensEarned || 0,
+          totalTokensSpent: newProfile.totalTokensSpent || 0,
+          username: session.user.name || "Пользователь",
+        });
+      }
+
+      // Форматируем ответ для существующего профиля
+      const profile = {
+        tokenBalance: userProfile.tokenBalance || 0,
+        status: userProfile.status || "Regular",
+        carModel: userProfile.carModel || null,
+        district: userProfile.district || null,
+        totalParksVisited: userProfile.totalParksVisited || 0,
+        uniqueParksVisited: userProfile.uniqueParksVisited || 0,
+        consecutiveLoginDays: userProfile.consecutiveLoginDays || 1,
+        totalTokensEarned: userProfile.totalTokensEarned || 0,
+        totalTokensSpent: userProfile.totalTokensSpent || 0,
+        username: userProfile.user?.username || session.user.name || "Пользователь",
+      };
+
+      return NextResponse.json(profile);
+    } catch (dbError) {
+      console.error("Database error fetching user profile:", dbError);
+      return NextResponse.json(
+        { error: "Database error: " + (dbError instanceof Error ? dbError.message : String(dbError)) },
+        { status: 500 }
+      );
     }
-
-    // Форматируем ответ
-    const profile = {
-      tokenBalance: userProfile.tokenBalance,
-      status: userProfile.status,
-      carModel: userProfile.carModel,
-      district: userProfile.district,
-      totalParksVisited: userProfile.totalParksVisited,
-      uniqueParksVisited: userProfile.uniqueParksVisited,
-      consecutiveLoginDays: userProfile.consecutiveLoginDays,
-      totalTokensEarned: userProfile.totalTokensEarned,
-      totalTokensSpent: userProfile.totalTokensSpent,
-      username: userProfile.user?.username || session.user.name || "Пользователь",
-    };
-
-    return NextResponse.json(profile);
   } catch (error) {
-    console.error("Error fetching user profile:", error);
+    console.error("Error in profile endpoint:", error);
     return NextResponse.json(
-      { error: "Failed to fetch user profile" },
+      { error: "Failed to process profile request" },
       { status: 500 }
     );
   }

@@ -55,7 +55,7 @@ model User {
 
 model UserProfile {
   id                   String  @id @default(cuid())
-  userId               String? @unique(map: "sqlite_autoindex_UserProfile_2")
+  userId               String  @unique(map: "sqlite_autoindex_UserProfile_2")
   tokenBalance         Int?    @default(0)
   status               String? @default("Regular")
   carModel             String?
