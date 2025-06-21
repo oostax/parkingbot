@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Forecast } from "@/types/parking";
-import { query, checkConnection } from "@/lib/sqlite/db";
+import { query, checkConnection } from "@/lib/db";
 
 // Уменьшаем время кэширования до 5 минут, чтобы чаще обновлять данные
 const CACHE_TIME = 300;

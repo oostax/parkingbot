@@ -1,8 +1,8 @@
 // Проверка, что код выполняется на сервере
 const isServer = typeof window === 'undefined';
 
-// Import prisma only on server-side
-const prisma = isServer ? require('./prisma').default : null;
+// Import prisma client from prisma.ts
+import { prisma } from './prisma';
 
 // Функция для выполнения SQL-запроса с возвратом результатов
 export async function query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
@@ -12,13 +12,8 @@ export async function query<T = any>(sql: string, params: any[] = []): Promise<T
   }
   
   try {
-    // Ensure prisma is available
-    if (!prisma) {
-      throw new Error('Prisma client is not available on the client side');
-    }
-    
-    // Use type assertion to help TypeScript understand that prisma is available
-    return await (prisma as any).$queryRawUnsafe(sql, ...params) as T[];
+    // Use the imported prisma client
+    return await prisma.$queryRawUnsafe(sql, ...params) as T[];
   } catch (error) {
     console.error('Error executing query:', error);
     throw error;
@@ -154,12 +149,6 @@ export async function checkConnection(): Promise<boolean> {
     // Проверяем, настроена ли переменная среды
     if (!process.env.DATABASE_URL) {
       console.error('DATABASE_URL environment variable is not set!');
-      return false;
-    }
-
-    // Проверяем, доступен ли prisma
-    if (!prisma) {
-      console.error('Prisma client is not available');
       return false;
     }
     

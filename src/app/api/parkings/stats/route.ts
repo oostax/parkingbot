@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query, checkConnection } from "@/lib/sqlite/db";
+import { query, checkConnection } from "@/lib/db";
 
 // Cache responses for 15 minutes
 const CACHE_TIME = 900; // seconds (15 minutes)

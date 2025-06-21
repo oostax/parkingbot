@@ -7,17 +7,12 @@
     "build": "next build --no-lint",
     "start": "next start",
     "lint": "next lint",
-    "init-db": "ts-node --project tsconfig.node.json scripts/init-db.ts",
+    "init-db": "node scripts/setup-database.js",
     "extract-parking-data": "node scripts/extract-parking-data.js",
     "bot": "node scripts/telegram-bot.js",
     "data-collector": "node scripts/data-collector.js",
-    "init-tables": "node scripts/initialize-tables.js",
-    "init-user-tables": "node scripts/init-user-tables.js",
-    "optimize-db": "node scripts/optimize-db.js",
-    "fix-env": "node scripts/fix-env-variables.js",
-    "fix-db": "node scripts/fix-sqlite-permissions.js",
-    "fix-bot": "node scripts/fix-telegram-bot.js",
-    "fix-all": "node scripts/fix-all.js"
+    "fix-env": "node scripts/update-env.js",
+    "fix-db": "node scripts/setup-database.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",

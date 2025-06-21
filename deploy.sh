@@ -31,15 +31,20 @@ if ! command -v nginx &> /dev/null; then
     sudo apt-get install -y nginx
 fi
 
+# Install SQLite3 if not installed
+if ! command -v sqlite3 &> /dev/null; then
+    echo "Installing SQLite3..."
+    sudo apt-get install -y sqlite3
+fi
+
 # Build the Next.js application
 echo "Building the application..."
 npm ci
 npm run build
 
 # Initialize database tables
-echo "Initializing database tables..."
-npm run init-tables
-npm run init-user-tables
+echo "Initializing database..."
+npm run init-db
 
 # Setup Nginx configuration
 echo "Setting up Nginx configuration..."
@@ -105,7 +110,7 @@ module.exports = {
       max_restarts: 10, // Max number of consecutive restarts
     }
   ]
-}; 
+};
 EOF
 
 # Test Nginx configuration

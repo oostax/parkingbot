@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ParkingStats } from "@/types/parking";
-import { query, checkConnection } from "@/lib/sqlite/db";
+import { query, checkConnection } from "@/lib/db";
 
 // Cache responses for 6 hours
 const CACHE_TIME = 21600; // seconds (6 hours)

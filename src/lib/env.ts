@@ -6,8 +6,8 @@ config({ path: '.env.development' });
 config({ path: '.env.local' });
 config({ path: '.env' });
 
-// The PostgreSQL connection string
-const DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/parkingbot?schema=public';
+// The SQLite connection string
+const DATABASE_URL = 'file:./prisma/dev.db';
 
 // Set DATABASE_URL both as a module export and as a global environment variable
 if (typeof process !== 'undefined' && process.env) {
@@ -19,9 +19,8 @@ if (typeof process !== 'undefined' && process.env) {
     console.log('DATABASE_URL environment variable already set');
   }
 
-  // Log the DATABASE_URL value (with credentials masked)
-  const visibleUrl = process.env.DATABASE_URL.replace(/\/\/.*?@/, '//***:***@');
-  console.log(`Current DATABASE_URL: ${visibleUrl}`);
+  // Log the DATABASE_URL value
+  console.log(`Current DATABASE_URL: ${process.env.DATABASE_URL}`);
 }
 
 // Set the variable in global scope for Prisma
