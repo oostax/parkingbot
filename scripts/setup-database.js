@@ -397,22 +397,130 @@ function clearPrismaCache() {
   }
 }
 
+// Добавление демонстрационных челленджей
+function addDemoChallenges() {
+  console.log('Добавление демонстрационных челленджей...');
+  
+  try {
+    const db = new sqlite3.Database(DB_PATH);
+    const { nanoid } = require('nanoid');
+    
+    // Текущая дата для стартовых дат
+    const now = new Date();
+    
+    // Дата окончания через 7 дней
+    const endDate = new Date();
+    endDate.setDate(now.getDate() + 7);
+    
+    // Подготовка тестовых челленджей
+    const challenges = [
+      {
+        id: nanoid(),
+        title: "Посетить 5 парковок",
+        description: "Посетите 5 разных парковок в течение недели и получите бонус",
+        reward: 50,
+        startDate: now.toISOString(),
+        endDate: endDate.toISOString(),
+        isActive: 1,
+        type: "visit_parks",
+        requirement: 5
+      },
+      {
+        id: nanoid(),
+        title: "Ежедневный вход",
+        description: "Заходите в приложение 5 дней подряд",
+        reward: 30,
+        startDate: now.toISOString(),
+        endDate: endDate.toISOString(),
+        isActive: 1,
+        type: "daily_login",
+        requirement: 5
+      },
+      {
+        id: nanoid(),
+        title: "Пригласите друга",
+        description: "Пригласите друга в приложение и получите бонус",
+        reward: 100,
+        startDate: now.toISOString(),
+        endDate: endDate.toISOString(),
+        isActive: 1,
+        type: "invite_friends",
+        requirement: 1
+      }
+    ];
+    
+    // Очищаем существующие челленджи
+    db.run(`DELETE FROM Challenge`, (err) => {
+      if (err) {
+        console.error('❌ Ошибка при очистке таблицы челленджей:', err);
+      } else {
+        console.log('✅ Существующие челленджи удалены');
+        
+        // Подготавливаем запрос для вставки
+        const insertStatement = `
+          INSERT INTO Challenge 
+          (id, title, description, reward, startDate, endDate, isActive, type, requirement) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+        
+        // Вставляем каждый челлендж
+        challenges.forEach(challenge => {
+          db.run(insertStatement, [
+            challenge.id,
+            challenge.title,
+            challenge.description,
+            challenge.reward,
+            challenge.startDate,
+            challenge.endDate,
+            challenge.isActive,
+            challenge.type,
+            challenge.requirement
+          ], (err) => {
+            if (err) {
+              console.error(`❌ Ошибка при добавлении челленджа "${challenge.title}":`, err);
+            } else {
+              console.log(`✅ Челлендж "${challenge.title}" добавлен`);
+            }
+          });
+        });
+      }
+    });
+    
+    db.close((err) => {
+      if (err) {
+        console.error('❌ Ошибка при закрытии соединения с базой данных:', err);
+      }
+    });
+  } catch (error) {
+    console.error('❌ Ошибка при добавлении демонстрационных челленджей:', error);
+  }
+}
+
 // Основная функция
 async function main() {
   console.log('🚀 Запуск универсального скрипта настройки базы данных...');
   
   try {
-    installDependencies();
-    ensureDirectoriesExist();
-    setupDatabase();
-    createDatabaseTables();
-    fixDatabasePermissions(); // Повторно устанавливаем права доступа после создания таблиц
-    createEnvFile(); // Создаем .env файл с правильным путем к базе данных
-    clearPrismaCache();
+    // Проверяем режим установки
+    const installMode = process.argv[2];
     
-    console.log('✅ Настройка базы данных успешно завершена!');
+    if (installMode === '--clean') {
+      console.log('🧹 Режим чистой установки активирован');
+      cleanInstall = true;
+    }
+    
+    await ensureDirectoriesExist();
+    await installDependencies();
+    await fixDatabasePermissions();
+    await setupDatabase();
+    await createDatabaseTables();
+    await addDemoChallenges(); // Добавляем демо-челленджи
+    await createEnvFile();
+    await clearPrismaCache();
+    
+    console.log('✅ Настройка проекта завершена успешно');
   } catch (error) {
-    console.error('❌ Произошла ошибка при настройке базы данных:', error);
+    console.error('❌ Ошибка при настройке проекта:', error);
     process.exit(1);
   }
 }

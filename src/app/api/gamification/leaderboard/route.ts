@@ -34,12 +34,15 @@ export async function GET(request: NextRequest) {
 
     // Формируем ответ
     const leaderboard = sortedUsers.map((user, index) => {
+      const displayName = user.username || user.firstName || "Пользователь";
       return {
-        position: index + 1,
-        userId: user.id,
-        username: user.username || user.firstName || "Пользователь",
+        id: user.id,
+        rank: index + 1,
+        displayName: displayName,
+        username: user.username || "user",
         avatarUrl: user.image || null,
-        tokenBalance: user.userProfile?.tokenBalance || 0,
+        score: user.userProfile?.tokenBalance || 0,
+        status: user.userProfile?.status || "Regular",
         isCurrentUser: user.id === session.user?.id
       };
     });

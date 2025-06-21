@@ -44,34 +44,72 @@ export async function GET(request: NextRequest) {
           },
         });
 
+        // Подготавливаем базовый профиль для нового пользователя
+        const now = new Date();
+        
         // Возвращаем созданный профиль
         return NextResponse.json({
-          tokenBalance: newProfile.tokenBalance || 0,
-          status: newProfile.status || "Regular",
-          totalParksVisited: newProfile.totalParksVisited || 0,
-          uniqueParksVisited: newProfile.uniqueParksVisited || 0,
-          consecutiveLoginDays: newProfile.consecutiveLoginDays || 1,
-          totalTokensEarned: newProfile.totalTokensEarned || 0,
-          totalTokensSpent: newProfile.totalTokensSpent || 0,
-          username: session.user.name || "Пользователь",
+          profile: {
+            id: newProfile.id,
+            telegramId: session.user.telegramId,
+            username: session.user.name?.toLowerCase().replace(/\s+/g, '') || "user",
+            displayName: session.user.name || "Пользователь",
+            avatarUrl: session.user.image,
+            district: null,
+            carModel: null,
+            carColor: null,
+            tokenBalance: 0,
+            status: "Regular",
+            joinedAt: now,
+            lastLoginAt: now,
+            stats: {
+              totalParksVisited: 0,
+              uniqueParksVisited: 0,
+              consecutiveLoginDays: 1,
+              totalTokensEarned: 0,
+              totalTokensSpent: 0,
+              referralsCount: 0,
+              challengesCompleted: 0,
+              districtsVisited: []
+            },
+            friends: []
+          }
         });
       }
 
+      // Подготавливаем данные для существующего профиля
+      const now = new Date();
+      const joinedAt = userProfile.user?.createdAt ? new Date(userProfile.user.createdAt) : now;
+      const lastLoginAt = userProfile.lastLoginAt ? new Date(userProfile.lastLoginAt) : now;
+
       // Форматируем ответ для существующего профиля
       const profile = {
+        id: userProfile.id,
+        telegramId: userProfile.user?.telegramId,
+        username: userProfile.user?.username || session.user.name?.toLowerCase().replace(/\s+/g, '') || "user",
+        displayName: userProfile.user?.firstName || session.user.name || "Пользователь",
+        avatarUrl: userProfile.user?.image || session.user.image,
+        district: userProfile.district,
+        carModel: userProfile.carModel,
+        carColor: null, // Добавим это поле позже
         tokenBalance: userProfile.tokenBalance || 0,
         status: userProfile.status || "Regular",
-        carModel: userProfile.carModel || null,
-        district: userProfile.district || null,
-        totalParksVisited: userProfile.totalParksVisited || 0,
-        uniqueParksVisited: userProfile.uniqueParksVisited || 0,
-        consecutiveLoginDays: userProfile.consecutiveLoginDays || 1,
-        totalTokensEarned: userProfile.totalTokensEarned || 0,
-        totalTokensSpent: userProfile.totalTokensSpent || 0,
-        username: userProfile.user?.username || session.user.name || "Пользователь",
+        joinedAt: joinedAt,
+        lastLoginAt: lastLoginAt,
+        stats: {
+          totalParksVisited: userProfile.totalParksVisited || 0,
+          uniqueParksVisited: userProfile.uniqueParksVisited || 0,
+          consecutiveLoginDays: userProfile.consecutiveLoginDays || 1,
+          totalTokensEarned: userProfile.totalTokensEarned || 0,
+          totalTokensSpent: userProfile.totalTokensSpent || 0,
+          referralsCount: userProfile.referralsCount || 0,
+          challengesCompleted: userProfile.challengesCompleted || 0,
+          districtsVisited: []
+        },
+        friends: []
       };
 
-      return NextResponse.json(profile);
+      return NextResponse.json({ profile });
     } catch (dbError) {
       console.error("Database error fetching user profile:", dbError);
       return NextResponse.json(
