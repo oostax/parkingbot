@@ -42,6 +42,16 @@ echo "Setting up prisma directory..."
 mkdir -p prisma
 chmod 777 prisma
 
+# Create .env file with absolute path to database
+echo "Creating .env file..."
+cat > .env << EOF
+DATABASE_URL="file:$(pwd)/prisma/dev.db"
+NEXTAUTH_SECRET="parkingbot_secure_secret_key_for_authentication_12345"
+NEXTAUTH_URL="https://mosparkingbot.ru"
+TELEGRAM_BOT_TOKEN="7043413169:AAFLuLBvDqxCWh2dS-jndfiD5s-OHRs6s1A"
+NEXT_PUBLIC_TELEGRAM_BOT_USERNAME="mosmetroparkingbot"
+EOF
+
 # Build the Next.js application
 echo "Building the application..."
 npm ci
@@ -90,7 +100,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         NEXTAUTH_URL: 'https://mosparkingbot.ru',
-        DATABASE_URL: 'file:./prisma/dev.db'
+        DATABASE_URL: 'file:$(pwd)/prisma/dev.db'
       },
       max_memory_restart: '500M',
     },
@@ -102,7 +112,7 @@ module.exports = {
         NODE_ENV: 'production',
         TELEGRAM_BOT_TOKEN: '7043413169:AAFLuLBvDqxCWh2dS-jndfiD5s-OHRs6s1A',
         NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: 'mosmetroparkingbot',
-        DATABASE_URL: 'file:./prisma/dev.db'
+        DATABASE_URL: 'file:$(pwd)/prisma/dev.db'
       },
       max_memory_restart: '300M',
     },
@@ -112,7 +122,7 @@ module.exports = {
       args: 'scripts/data-collector.js',
       env: {
         NODE_ENV: 'production',
-        DATABASE_URL: 'file:./prisma/dev.db'
+        DATABASE_URL: 'file:$(pwd)/prisma/dev.db'
       },
       max_memory_restart: '300M',
       restart_delay: 10000, // 10 seconds delay between restarts
