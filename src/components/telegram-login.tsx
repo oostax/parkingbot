@@ -25,14 +25,21 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
       localStorage.setItem('tg_auth_data', JSON.stringify(userData));
     }
     
+    console.log("Вызов signIn с данными пользователя:", userData.id);
+    
     signIn("credentials", {
       telegramData: JSON.stringify(userData),
       redirect: false,
     }).then((res) => {
       console.log("Sign in result:", res);
       if (res?.ok && onSuccess) {
+        console.log("Авторизация успешна, вызов onSuccess");
         onSuccess();
+      } else if (res?.error) {
+        console.error("Ошибка авторизации:", res.error);
       }
+    }).catch((err) => {
+      console.error("Критическая ошибка авторизации:", err);
     }).finally(() => {
       setIsAutoLoggingIn(false);
     });
@@ -91,6 +98,8 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
 
   // Check if we're inside Telegram Mini App and attempt auto login
   useEffect(() => {
+    console.log("TelegramLogin компонент монтируется");
+    
     // First try to parse data from URL if present
     const processedFromUrl = parseTelegramWebAppDataFromUrl();
     if (processedFromUrl) {
@@ -105,6 +114,7 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
       
       if (storedAuthData) {
         try {
+          console.log("Найдены сохранённые данные авторизации, пробуем автоматический вход");
           setIsAutoLoggingIn(true);
           
           const userData = JSON.parse(storedAuthData) as TelegramAuthData;
@@ -120,6 +130,7 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
             return;
           } else {
             // Token expired, remove it
+            console.log("Токен авторизации устарел, удаляем из localStorage");
             localStorage.removeItem('tg_auth_data');
             setIsAutoLoggingIn(false);
           }
@@ -140,30 +151,39 @@ export default function TelegramLogin({ onSuccess }: TelegramLoginProps) {
       // We're running inside a Telegram Mini App
       console.log("Running in Telegram Mini App");
       const telegramWebApp = window.Telegram.WebApp;
-      console.log("WebApp initDataUnsafe:", telegramWebApp.initDataUnsafe);
       
-      if (telegramWebApp?.initDataUnsafe?.user) {
-        // Use the user data provided by Telegram WebApp
-        setIsAutoLoggingIn(true);
-        console.log("User data found in Telegram WebApp:", telegramWebApp.initDataUnsafe.user);
+      try {
+        console.log("WebApp initDataUnsafe:", telegramWebApp.initDataUnsafe);
         
-        const userData = telegramWebApp.initDataUnsafe.user;
-        handleTelegramAuth({
-          id: userData.id,
-          first_name: userData.first_name,
-          last_name: userData.last_name,
-          username: userData.username,
-          photo_url: userData.photo_url,
-          auth_date: Math.floor(Date.now() / 1000),
-        });
-      } else {
-        console.warn("No user data in Telegram WebApp initDataUnsafe");
+        if (telegramWebApp?.initDataUnsafe?.user) {
+          // Use the user data provided by Telegram WebApp
+          setIsAutoLoggingIn(true);
+          console.log("User data found in Telegram WebApp:", telegramWebApp.initDataUnsafe.user);
+          
+          const userData = telegramWebApp.initDataUnsafe.user;
+          handleTelegramAuth({
+            id: userData.id,
+            first_name: userData.first_name,
+            last_name: userData.last_name,
+            username: userData.username,
+            photo_url: userData.photo_url,
+            auth_date: Math.floor(Date.now() / 1000),
+          });
+        } else {
+          console.warn("No user data in Telegram WebApp initDataUnsafe");
+        }
+      } catch (error) {
+        console.error("Ошибка при чтении данных Telegram WebApp:", error);
       }
     } else {
       // Try auto login from stored auth data
       console.log("Not in Telegram Mini App, trying auto login");
       tryAutoLogin();
     }
+    
+    return () => {
+      console.log("TelegramLogin компонент размонтируется");
+    };
   }, [handleTelegramAuth, parseTelegramWebAppDataFromUrl]);
 
   // Function to render the Telegram login widget

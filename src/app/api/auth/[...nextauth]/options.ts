@@ -14,6 +14,10 @@ interface TelegramCredentials {
   hash?: string;
 }
 
+interface TelegramCredentialsPayload {
+  telegramData?: string;
+}
+
 interface UserData {
   id: string;
   name?: string;
@@ -27,22 +31,24 @@ interface UserData {
 export const authOptions = {
   providers: [
     CredentialsProvider({
-      id: "telegram-login",
+      id: "credentials",
       name: "Telegram Login",
       credentials: {
-        id: { label: "ID", type: "text" },
-        first_name: { label: "First Name", type: "text" },
-        last_name: { label: "Last Name", type: "text" },
-        username: { label: "Username", type: "text" },
-        photo_url: { label: "Photo URL", type: "text" },
-        auth_date: { label: "Auth Date", type: "text" },
-        hash: { label: "Hash", type: "text" },
+        telegramData: { label: "Telegram Data", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials) return null;
 
         try {
-          const telegramData = credentials as unknown as TelegramCredentials;
+          const payload = credentials as TelegramCredentialsPayload;
+          
+          if (!payload.telegramData) {
+            console.error("Отсутствуют данные авторизации Telegram");
+            return null;
+          }
+          
+          // Парсим JSON данные из поля telegramData
+          const telegramData = JSON.parse(payload.telegramData) as TelegramCredentials;
           console.log("Попытка авторизации через Telegram:", telegramData.username);
           
           // Проверка данных Telegram
