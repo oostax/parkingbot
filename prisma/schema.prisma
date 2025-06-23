@@ -127,3 +127,37 @@ model ChallengeCompletion {
 
   @@unique([challengeId, userId], map: "sqlite_autoindex_ChallengeCompletion_2")
 }
+
+model PromoCode {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  reward      Int
+  type        String  @default("tokens") // tokens, discount, status_boost
+  description String?
+  isActive    Boolean @default(true)
+  expiresAt   String?
+  usageLimit  Int?    @default(0) // 0 - unlimited
+  usageCount  Int     @default(0)
+  createdAt   String  @default("CURRENT_TIMESTAMP")
+  createdBy   String?
+  redemptions PromoCodeRedemption[]
+}
+
+model PromoCodeRedemption {
+  id         String    @id @default(cuid())
+  promoCodeId String
+  userId     String
+  redeemedAt String    @default("CURRENT_TIMESTAMP")
+  promoCode  PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model AdminUser {
+  id          String   @id @default(cuid())
+  telegramId  String   @unique
+  username    String?
+  fullName    String?
+  role        String   @default("admin") // admin, super_admin
+  isActive    Boolean  @default(true)
+  addedById   String?  // ID администратора, который добавил этого пользователя
+  createdAt   String   @default("CURRENT_TIMESTAMP")
+}

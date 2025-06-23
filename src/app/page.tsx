@@ -79,7 +79,17 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("map");
   const [searchQuery, setSearchQuery] = useState("");
   const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
+  const [showOnlyIntercepting, setShowOnlyIntercepting] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(24); // 8 рядов по 3 карточки в ряду в типичном представлении
+  // Добавляем состояние для пагинации с сервера
+  const [totalListItems, setTotalListItems] = useState(0);
+  const [totalListPages, setTotalListPages] = useState(1);
+  const [parkingType, setParkingType] = useState<'all' | 'intercepting' | 'paid'>('intercepting');
+  // Отдельный массив для парковок на вкладке "Список"
+  const [listParkings, setListParkings] = useState<ParkingInfo[]>([]);
+  const [isListLoading, setIsListLoading] = useState(false);
   const router = useRouter();
   
   // Добавляем ref для отслеживания активных запросов
@@ -88,6 +98,8 @@ export default function Home() {
   const lastDataFetchRef = useRef<number>(0);
   // Минимальный интервал между запросами (3 секунды)
   const MIN_FETCH_INTERVAL = 3000;
+  // Ref для списка парковок для прокрутки вверх при смене страницы
+  const listContainerRef = useRef<HTMLDivElement>(null);
 
   // Check if user has any favorites
   const hasFavorites = useMemo(() => {
@@ -98,25 +110,40 @@ export default function Home() {
   const fetchParkings = useCallback(async () => {
     // Предотвращаем параллельные запросы на получение данных
     if (isDataFetchingRef.current) {
+      console.log("Предотвращен параллельный запрос на получение данных");
       return;
     }
     
     // Проверяем, не слишком ли часто делаем запросы
     const now = Date.now();
     if (now - lastDataFetchRef.current < MIN_FETCH_INTERVAL) {
+      console.log("Запрос отклонен из-за слишком частых вызовов");
       return;
     }
     
     try {
+      console.log("Начинаем загрузку данных о парковках");
       setIsLoading(true);
       isDataFetchingRef.current = true;
       
-      const res = await fetch("/api/parkings");
+      // Добавляем параметр noCache=true и timestamp для обхода кэширования
+      const timestamp = new Date().getTime();
+      const res = await fetch(`/api/parkings?type=intercepting&noCache=true&t=${timestamp}&limit=1000`); // Для карты загружаем только перехватывающие с большим лимитом
+      console.log("Ответ API получен:", res.status, res.statusText);
       const data = await res.json();
+      console.log("Данные от API:", data.parkings?.length ? `Получено ${data.parkings.length} парковок` : "Пустой массив или некорректные данные");
       
-      if (Array.isArray(data)) {
-        setParkings(data);
-        setFilteredParkings(data);
+      if (Array.isArray(data.parkings)) {
+        setParkings(data.parkings);
+        setFilteredParkings(data.parkings);
+        
+        // Выводим информацию о количестве перехватывающих парковок
+        console.log(`Загружено ${data.parkings.length} перехватывающих парковок`);
+        
+        // Отправляем событие с количеством перехватывающих парковок
+        window.dispatchEvent(new CustomEvent('update-intercepting-count', { 
+          detail: { count: data.parkings.length } 
+        }));
       } else {
         console.error("Invalid response format", data);
         toast({
@@ -137,7 +164,9 @@ export default function Home() {
       
       // Fallback to local data in case the API fails
       try {
+        console.log("Пробуем загрузить локальные данные");
         const localData = await getAllParkings();
+        console.log("Локальные данные:", localData.length ? `Получено ${localData.length} парковок` : "Пустой массив или некорректные данные");
         setParkings(localData);
         setFilteredParkings(localData);
       } catch (fallbackError) {
@@ -149,32 +178,110 @@ export default function Home() {
     }
   }, [toast]);
 
-  // Filter parkings based on search query
+  // Новая функция для загрузки парковок на вкладке "Список"
+  const fetchListParkings = useCallback(async (page = 1, type: 'all' | 'intercepting' | 'paid' = 'all', search = '') => {
+    try {
+      setIsListLoading(true);
+      
+      let url = `/api/parkings?page=${page}&limit=${itemsPerPage}&type=${type}`;
+      
+      if (search) {
+        url += `&search=${encodeURIComponent(search)}`;
+      }
+      
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error("Failed to fetch parkings");
+      }
+      
+      const data = await res.json();
+      
+      if (data.parkings && Array.isArray(data.parkings)) {
+        setListParkings(data.parkings);
+        setTotalListItems(data.pagination.totalItems);
+        setTotalListPages(data.pagination.totalPages);
+      } else {
+        throw new Error("Invalid response format");
+      }
+      
+    } catch (error) {
+      console.error("Error fetching list parkings:", error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось загрузить список парковок",
+        variant: "destructive",
+      });
+      setListParkings([]);
+      setTotalListItems(0);
+      setTotalListPages(1);
+    } finally {
+      setIsListLoading(false);
+    }
+  }, [itemsPerPage, toast]);
+
+  // Загрузка парковок при переключении вкладки на "Список"
   useEffect(() => {
+    if (activeTab === "list") {
+      // Используем напрямую выбранный тип parkingType без дополнительной логики
+      console.log(`Загрузка списка парковок: тип=${parkingType}, страница=${currentPage}, поиск=${searchQuery || 'пусто'}`);
+      fetchListParkings(currentPage, parkingType, searchQuery);
+    }
+  }, [activeTab, currentPage, parkingType, fetchListParkings, searchQuery]);
+
+  // Обработчик смены типа парковок
+  const handleParkingTypeChange = useCallback((type: 'all' | 'intercepting' | 'paid') => {
+    setParkingType(type);
+    setCurrentPage(1); // Сброс на первую страницу при смене типа
+  }, []);
+
+  // Сбрасываем текущую страницу при изменении поискового запроса или типа парковок
+  useEffect(() => {
+    if (activeTab === "list") {
+      // Используем небольшую задержку для предотвращения слишком частых запросов при вводе
+      const timer = setTimeout(() => {
+        setCurrentPage(1);
+        console.log(`Изменение поиска или типа: тип=${parkingType}, поиск=${searchQuery || 'пусто'}`);
+        fetchListParkings(1, parkingType, searchQuery);
+      }, 500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [searchQuery, fetchListParkings, activeTab, parkingType]);
+
+  // Прокручиваем список вверх при смене страницы
+  useEffect(() => {
+    if (listContainerRef.current && activeTab === "list") {
+      listContainerRef.current.scrollTop = 0;
+    }
+  }, [currentPage, activeTab]);
+
+  // Мемоизированные результаты для карты
+  const filteredParkingsForMap = useMemo(() => {
     let filtered = parkings;
     
-    // Apply search filter if query exists
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      filtered = parkings.filter(parking => 
-        parking.name.toLowerCase().includes(query) || 
-        parking.street.toLowerCase().includes(query) || 
-        (parking.subway && parking.subway.toLowerCase().includes(query))
-      );
-    }
-    
-    // Apply favorites filter if enabled
+    // Для карты применяем только фильтр избранного
     if (showOnlyFavorites) {
       filtered = filtered.filter(parking => parking.isFavorite);
     }
     
-    setFilteredParkings(filtered);
-  }, [searchQuery, parkings, showOnlyFavorites]);
+    return filtered;
+  }, [parkings, showOnlyFavorites]);
+  
+  // Обычная фильтрация
+  useEffect(() => {
+    setFilteredParkings(activeTab === "map" ? filteredParkingsForMap : []);
+  }, [activeTab, filteredParkingsForMap]);
 
   // Fetch parking details
   const fetchParkingDetails = async (id: string) => {
     try {
       const res = await fetch(`/api/parkings/${id}`);
+      
+      if (!res.ok) {
+        console.log(`Парковка с ID ${id} не найдена или не является перехватывающей`);
+        return; // Прерываем выполнение, если парковка не найдена
+      }
+      
       const data = await res.json();
       
       if (data.parking) {
@@ -240,14 +347,29 @@ export default function Home() {
   };
 
   // Get selected parking details and switch to map tab
-  const handleParkingSelect = useCallback(async (parking: ParkingInfo) => {
+  const handleParkingSelect = useCallback(async (parking: ParkingInfo | null) => {
+    // Если parking равен null, просто закрываем карточку
+    if (!parking) {
+      setSelectedParking(null);
+      return;
+    }
+    
     setSelectedParking(parking);
-    fetchParkingDetails(parking.id);
+    
+    // Проверяем, является ли парковка перехватывающей по свойству isIntercepting
+    if (parking.isIntercepting) {
+      fetchParkingDetails(parking.id);
+    }
+    
     setActiveTab("map");
-  }, []);
+  }, [fetchParkingDetails]);
 
   // Close parking detail card
   const handleCloseParking = () => {
+    // Отправляем событие для предотвращения автоцентрирования
+    window.dispatchEvent(new Event('prevent-auto-center'));
+    
+    // Закрываем карточку
     setSelectedParking(null);
   };
 
@@ -291,6 +413,169 @@ export default function Home() {
     };
   }, [fetchParkings, handleParkingSelect, parkings.length, sessionStatus]);
 
+  // Memo для оптимизации рендеринга элементов списка парковок
+  const renderParkingItems = useMemo(() => {
+    if (listParkings.length === 0) {
+      return (
+        <div className="col-span-full text-center py-8 text-gray-500">
+          {searchQuery ? (
+            <>Парковки не найдены по запросу &quot;{searchQuery}&quot;</>
+          ) : (
+            <>Парковки не найдены</>
+          )}
+        </div>
+      );
+    }
+    
+    return listParkings.map((parking) => (
+      <div 
+        key={parking.id} 
+        className={`p-3 border rounded-md cursor-pointer transition-all ${
+          selectedParking?.id === parking.id 
+            ? 'border-orange-500 bg-orange-50' 
+            : parking.isIntercepting 
+              ? 'border-green-300 hover:bg-green-50'
+              : 'border-blue-300 hover:bg-blue-50'
+        }`}
+        onClick={() => handleParkingSelect(parking)}
+      >
+        <div className="font-medium">{parking.name}</div>
+        <div className="text-sm text-gray-500">{parking.street} {parking.house}</div>
+        <div className="flex flex-wrap gap-1 mt-1">
+          {parking.subway && (
+            <div className="text-xs inline-block px-2 py-0.5 bg-blue-100 rounded-full">
+              Метро {parking.subway}
+            </div>
+          )}
+          {parking.isIntercepting ? (
+            <div className="text-xs inline-block px-2 py-0.5 bg-green-100 rounded-full">
+              Перехватывающая
+            </div>
+          ) : (
+            <div className="text-xs inline-block px-2 py-0.5 bg-orange-100 rounded-full">
+              Платная
+            </div>
+          )}
+        </div>
+      </div>
+    ));
+  }, [listParkings, selectedParking, handleParkingSelect, searchQuery]);
+  
+  // Memo для оптимизации рендеринга кнопок пагинации
+  const renderPagination = useMemo(() => {
+    if (totalListPages <= 1) return null;
+    
+    const pages: React.ReactNode[] = [];
+    const maxPagesToShow = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
+    let endPage = Math.min(totalListPages, startPage + maxPagesToShow - 1);
+    
+    // Корректируем начальную страницу, если текущая страница близка к концу
+    if (endPage - startPage + 1 < maxPagesToShow) {
+      startPage = Math.max(1, endPage - maxPagesToShow + 1);
+    }
+    
+    // Добавляем кнопку "Предыдущая"
+    pages.push(
+      <Button 
+        key="prev" 
+        variant="outline" 
+        size="sm" 
+        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+        disabled={currentPage === 1}
+        className="px-2 py-0 h-8 text-xs"
+      >
+        &lt;
+      </Button>
+    );
+    
+    // Добавляем первую страницу и многоточие, если начинаем не с первой
+    if (startPage > 1) {
+      pages.push(
+        <Button 
+          key="1" 
+          variant={currentPage === 1 ? "default" : "outline"} 
+          size="sm" 
+          onClick={() => setCurrentPage(1)}
+          className="px-3 py-0 h-8 text-xs"
+        >
+          1
+        </Button>
+      );
+      
+      if (startPage > 2) {
+        pages.push(
+          <span key="start-ellipsis" className="px-1">...</span>
+        );
+      }
+    }
+    
+    // Добавляем страницы
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(
+        <Button 
+          key={i} 
+          variant={currentPage === i ? "default" : "outline"} 
+          size="sm" 
+          onClick={() => setCurrentPage(i)}
+          className="px-3 py-0 h-8 text-xs"
+        >
+          {i}
+        </Button>
+      );
+    }
+    
+    // Добавляем многоточие и последнюю страницу, если заканчиваем не на последней
+    if (endPage < totalListPages) {
+      if (endPage < totalListPages - 1) {
+        pages.push(
+          <span key="end-ellipsis" className="px-1">...</span>
+        );
+      }
+      
+      pages.push(
+        <Button 
+          key={totalListPages} 
+          variant={currentPage === totalListPages ? "default" : "outline"} 
+          size="sm" 
+          onClick={() => setCurrentPage(totalListPages)}
+          className="px-3 py-0 h-8 text-xs"
+        >
+          {totalListPages}
+        </Button>
+      );
+    }
+    
+    // Добавляем кнопку "Следующая"
+    pages.push(
+      <Button 
+        key="next" 
+        variant="outline" 
+        size="sm" 
+        onClick={() => setCurrentPage(prev => Math.min(totalListPages, prev + 1))}
+        disabled={currentPage === totalListPages}
+        className="px-2 py-0 h-8 text-xs"
+      >
+        &gt;
+      </Button>
+    );
+    
+    return (
+      <div className="flex justify-center mt-4 gap-1 pb-4">
+        {pages}
+      </div>
+    );
+  }, [currentPage, totalListPages]);
+
+  // Memo для отображения счетчика результатов
+  const resultCount = useMemo(() => {
+    return totalListItems > 0 ? (
+      <span className="text-sm font-normal ml-2 text-gray-500">
+        Найдено: {totalListItems}
+      </span>
+    ) : null;
+  }, [totalListItems]);
+
   // Показываем индикатор загрузки, пока проверяется авторизация
   if (sessionStatus === 'loading' || !authChecked) {
     return <FullPageLoader />;
@@ -301,7 +586,7 @@ export default function Home() {
       <header className="p-2 md:p-4 pt-[calc(var(--tg-safe-area-top)+1.5rem)] md:pt-[calc(var(--tg-safe-area-top)+1rem)] bg-white shadow-sm fixed top-0 left-0 right-0 z-50">
         <div className="container flex justify-between items-center">
           <h1 className="text-base md:text-xl font-bold truncate mr-2">
-            <span className="hidden sm:inline">Перехватывающие парковки</span>
+            <span className="hidden sm:inline">MosParking</span>
             <span className="sm:hidden">Парковки</span>
           </h1>
           <div>
@@ -397,7 +682,7 @@ export default function Home() {
               ) : (
                 <div className="flex-1 relative h-full">
                   <MapComponent 
-                    parkings={filteredParkings} 
+                    parkings={filteredParkingsForMap} 
                     selectedParking={selectedParking}
                     onParkingSelect={handleParkingSelect}
                   />
@@ -411,6 +696,7 @@ export default function Home() {
                     onClose={handleCloseParking}
                     onToggleFavorite={() => toggleFavorite(selectedParking)}
                     allParkings={filteredParkings}
+                    interceptingParkings={parkings}
                   />
                 </div>
               )}
@@ -418,7 +704,7 @@ export default function Home() {
           </TabsContent>
           
           <TabsContent value="list" className="flex-1 animate-in fade-in slide-in-from-right duration-300 ease-in-out">
-            {isLoading ? (
+            {isListLoading ? (
               <div className="w-full flex items-center justify-center py-12">
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
@@ -427,41 +713,39 @@ export default function Home() {
               </div>
             ) : (
               <div className="pt-2 px-4">
-                <h2 className="text-xl font-bold mb-4 sticky top-0 pt-2 pb-2 bg-white z-10">
-                  Список перехватывающих парковок 
-                  {filteredParkings.length !== parkings.length && (
-                    <span className="text-sm font-normal ml-2 text-gray-500">
-                      Найдено: {filteredParkings.length}
-                    </span>
-                  )}
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[70vh] overflow-y-auto pb-10">
-                  {filteredParkings.length > 0 ? (
-                    filteredParkings.map((parking) => (
-                      <div 
-                        key={parking.id} 
-                        className={`p-3 border rounded-md cursor-pointer transition-all ${
-                          selectedParking?.id === parking.id 
-                            ? 'border-orange-500 bg-orange-50' 
-                            : 'border-blue-300 hover:bg-blue-50'
-                        }`}
-                        onClick={() => handleParkingSelect(parking)}
-                      >
-                        <div className="font-medium">{parking.name}</div>
-                        <div className="text-sm text-gray-500">{parking.street} {parking.house}</div>
-                        {parking.subway && (
-                          <div className="text-xs mt-1 inline-block px-2 py-1 bg-blue-100 rounded-full">
-                            Метро {parking.subway}
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="col-span-full text-center py-8 text-gray-500">
-                      Парковки не найдены по запросу &quot;{searchQuery}&quot;
-                    </div>
-                  )}
+                <div className="flex items-center justify-between mb-4 sticky top-0 pt-2 pb-2 bg-white z-10">
+                  <h2 className="text-xl font-bold">
+                    Список парковок 
+                    {resultCount}
+                  </h2>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant={parkingType === 'all' ? "default" : "outline"} 
+                      size="sm" 
+                      onClick={() => handleParkingTypeChange('all')}
+                    >
+                      Все
+                    </Button>
+                    <Button 
+                      variant={parkingType === 'intercepting' ? "default" : "outline"} 
+                      size="sm" 
+                      onClick={() => handleParkingTypeChange('intercepting')}
+                    >
+                      Перехватывающие
+                    </Button>
+                    <Button 
+                      variant={parkingType === 'paid' ? "default" : "outline"} 
+                      size="sm" 
+                      onClick={() => handleParkingTypeChange('paid')}
+                    >
+                      Платные
+                    </Button>
+                  </div>
                 </div>
+                <div ref={listContainerRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[70vh] overflow-y-auto pb-2">
+                  {renderParkingItems}
+                </div>
+                {renderPagination}
               </div>
             )}
           </TabsContent>

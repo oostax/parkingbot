@@ -7,7 +7,7 @@ import UserDataPreloader from "@/components/user-data-preloader";
 import Script from 'next/script';
 
 export const metadata: Metadata = {
-  title: "Перехватывающие парковки",
+  title: "MosParking",
   description: "Отслеживание свободных мест на перехватывающих парковках Москвы",
 };
 

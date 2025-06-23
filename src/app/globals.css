@@ -49,6 +49,10 @@
       display: flex;
     }
   }
+
+  .text-balance {
+    text-wrap: balance;
+  }
 }
 
 /* Mobile optimizations */
@@ -266,7 +270,7 @@ body {
 @keyframes fadeInUp {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -274,11 +278,70 @@ body {
   }
 }
 
-.animate-fadeInUp {
-  animation: fadeInUp 0.5s ease-out forwards;
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-/* Анимация для кнопок */
+@keyframes pulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.8);
+    opacity: 0.7;
+  }
+}
+
+@keyframes routeAnimation {
+  0% {
+    stroke-dasharray: 0, 10;
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dasharray: 10, 10;
+    stroke-dashoffset: -20;
+  }
+}
+
+.animate-fadeInUp {
+  animation: fadeInUp 0.5s ease forwards;
+}
+
+.animate-fadeInDown {
+  animation: fadeInDown 0.5s ease forwards;
+}
+
+.animate-pulse {
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+.animate-route {
+  animation: routeAnimation 1s linear infinite;
+}
+
+/* Стили для карточек */
+.card-animated {
+  transition: all 0.3s ease;
+}
+
+.card-animated:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Стили для кнопок */
 .btn-animated {
   transition: all 0.3s ease;
 }
@@ -288,14 +351,23 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-/* Анимация для карточек */
-.card-animated {
-  transition: all 0.3s ease;
+.btn-animated:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.card-animated:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+/* Стили для маркеров на карте */
+.custom-marker {
+  transition: transform 0.3s ease;
+}
+
+.custom-marker:hover {
+  transform: scale(1.2);
+}
+
+/* Стили для всплывающих подсказок на карте */
+.custom-tooltip {
+  transition: all 0.3s ease;
 }
 
 /* Анимация загрузки */
@@ -315,4 +387,55 @@ body {
     rgba(255, 255, 255, 0) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
+}
+
+/* Добавляем анимацию пульсации для маркера конца маршрута */
+@keyframes pulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.8);
+    opacity: 0.7;
+  }
+}
+
+.leaflet-pulse-icon {
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+/* Анимация появления элементов */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
+/* Анимация для кнопок */
+.btn-animated {
+  transition: all 0.3s ease;
+}
+
+.btn-animated:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.btn-animated:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }

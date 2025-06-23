@@ -121,23 +121,150 @@ export async function GET(
   const params = await context.params;
   const parkingId = params.id;
   
-  // Проверяем наличие параметра noCache в запросе
+  // Проверяем наличие параметров в запросе
   const url = new URL(request.url);
   const noCache = url.searchParams.has('noCache');
+  const forceRefresh = url.searchParams.has('force'); // Параметр для принудительного обновления
+  const bypassCache = url.searchParams.has('bypass'); // Новый параметр для полного обхода кэша
   
   try {
     const now = Math.floor(Date.now() / 1000);
     const cachedResponse = cache.get(parkingId);
     
-    // Если передан параметр noCache, пропускаем кэш и делаем свежий запрос
-    if (noCache) {
-      console.log(`Force fresh data request for parking ${parkingId} (noCache parameter)`);
+    // Если передан параметр bypass, полностью игнорируем кэш и делаем прямой запрос к API
+    if (bypassCache) {
+      console.log(`Bypass request for parking ${parkingId}`);
+      
+      // Проверяем, есть ли свежие данные в кэше (не старше 10 секунд)
+      const BYPASS_CACHE_TIME = 10; // 10 секунд
+      if (cachedResponse && (now - cachedResponse.timestamp) < BYPASS_CACHE_TIME) {
+        console.log(`Using very fresh cached data (${now - cachedResponse.timestamp}s old) for bypass request ${parkingId}`);
+        return NextResponse.json(cachedResponse.data);
+      }
+      
+      if (!inProgressRequests.has(parkingId)) {
+        try {
+          inProgressRequests.add(parkingId);
+          // Добавляем случайный параметр для обхода любого кэширования на уровне CDN
+          const randomParam = Math.random().toString(36).substring(7);
+          const data = await fetchParkingData(`${parkingId}?_=${randomParam}`);
+          const processedData = processApiData(data);
+          
+          // Сохраняем в кэш даже при bypass=true, но с текущим временем
+          cache.set(parkingId, { 
+            data: processedData, 
+            timestamp: now,
+            attempts: 0
+          });
+          
+          console.log(`Successfully fetched fresh data with bypass for parking ${parkingId}`);
+          return NextResponse.json(processedData);
+        } catch (error) {
+          console.error(`Error fetching data with bypass for ${parkingId}:`, error);
+          
+          // Если есть кэшированные данные, используем их даже при ошибке
+          if (cachedResponse) {
+            console.log(`Using cached data after bypass request error for ${parkingId}`);
+            return NextResponse.json({
+              ...cachedResponse.data,
+              isStale: true,
+              fromErrorFallback: true
+            });
+          }
+          
+          // Возвращаем пустые данные при ошибке и отсутствии кэша
+          return NextResponse.json({
+            totalSpaces: 0,
+            freeSpaces: 0,
+            handicappedTotal: 0,
+            handicappedFree: 0,
+            dataAvailable: false
+          });
+        } finally {
+          inProgressRequests.delete(parkingId);
+        }
+      } else {
+        // Already fetching this parking ID, return a waiting status
+        console.log(`Request for ${parkingId} already in progress, returning temporary data`);
+        
+        // Если есть кэшированные данные, возвращаем их вместо пустых данных
+        if (cachedResponse) {
+          console.log(`Returning cached data while request is in progress for ${parkingId}`);
+          return NextResponse.json({
+            ...cachedResponse.data,
+            isLoading: true
+          });
+        }
+        
+        return NextResponse.json({
+          totalSpaces: 0,
+          freeSpaces: 0, 
+          handicappedTotal: 0,
+          handicappedFree: 0,
+          dataAvailable: true,
+          isLoading: true
+        });
+      }
+    }
+    
+    // Если передан параметр force, очищаем кэш для этого ID
+    if (forceRefresh && cachedResponse) {
+      console.log(`Force clearing cache for parking ${parkingId}`);
+      cache.delete(parkingId);
+    }
+    
+    // Если передан параметр noCache или force, пропускаем кэш и делаем свежий запрос
+    if (noCache || forceRefresh) {
+      console.log(`Force fresh data request for parking ${parkingId} (noCache or force parameter)`);
       
       if (!inProgressRequests.has(parkingId)) {
         try {
           inProgressRequests.add(parkingId);
           const data = await fetchParkingData(parkingId);
           const processedData = processApiData(data);
+          
+          // Проверяем на нулевые значения
+          if (processedData.totalSpaces === 0 && processedData.freeSpaces === 0) {
+            console.log(`Warning: Zero values received for parking ${parkingId}, might be API issue`);
+            
+            // Если у нас есть предыдущие ненулевые данные в кэше, используем их
+            if (cachedResponse && 
+                typeof cachedResponse.data.totalSpaces === 'number' && 
+                cachedResponse.data.totalSpaces > 0 && 
+                !forceRefresh) { // Не используем кэш если force=true
+              console.log(`Using previous non-zero cached data for ${parkingId}`);
+              return NextResponse.json({
+                ...cachedResponse.data,
+                isStale: true,
+                dataAvailable: true
+              });
+            }
+            
+            // Делаем еще одну попытку получить данные, если получены нулевые значения
+            if (!forceRefresh) {  // Не делаем повторную попытку, если уже используется force=true
+              console.log(`Making one more attempt to get non-zero data for ${parkingId}`);
+              try {
+                // Добавляем небольшую задержку перед повторным запросом
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                const retryData = await fetchParkingData(parkingId);
+                const retryProcessedData = processApiData(retryData);
+                
+                // Если получены ненулевые данные, используем их
+                if ((retryProcessedData.totalSpaces as number) > 0 || (retryProcessedData.freeSpaces as number) > 0) {
+                  console.log(`Retry successful, got non-zero data for ${parkingId}`);
+                  cache.set(parkingId, { 
+                    data: retryProcessedData, 
+                    timestamp: now,
+                    attempts: 0
+                  });
+                  return NextResponse.json(retryProcessedData);
+                }
+              } catch (retryError) {
+                console.error(`Retry attempt failed for ${parkingId}:`, retryError);
+              }
+            }
+          }
           
           // Save to cache
           cache.set(parkingId, { 
@@ -150,7 +277,7 @@ export async function GET(
           return NextResponse.json(processedData);
         } catch (error) {
           // If we have any cached data, return it in case of error
-          if (cachedResponse) {
+          if (cachedResponse && !forceRefresh) { // Не используем кэш если force=true
             return NextResponse.json({
               ...cachedResponse.data,
               isStale: true,

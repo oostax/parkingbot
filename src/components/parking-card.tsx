@@ -1,825 +1,162 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ParkingInfo, ParkingStats, Forecast } from "@/types/parking";
-import { useToast } from "@/hooks/use-toast";
-import { Loader2, Star, MapPin, X, Activity, Heart, HeartOff, Car, Accessibility } from "lucide-react";
-import { getParkingRealTimeData } from "@/lib/parking-utils";
-import { useSession } from "next-auth/react";
-import ParkingRecommendation from "./parking-recommendation";
+import { Loader2, X } from "lucide-react";
+import { ParkingInfo } from "@/types/parking";
+import RegularParkingCard from "./RegularParkingCard";
+import InterceptingParkingCard from "./InterceptingParkingCard";
 
 interface ParkingCardProps {
   parking: ParkingInfo;
   onClose: () => void;
   onToggleFavorite: () => void;
   allParkings: ParkingInfo[];
+  interceptingParkings?: ParkingInfo[]; // Добавляем массив перехватывающих парковок
 }
 
-export default function ParkingCard({ parking, onClose, onToggleFavorite, allParkings }: ParkingCardProps) {
-  const { data: session } = useSession();
-  const { toast } = useToast();
-  const [isLoadingData, setIsLoadingData] = useState(true);
-  const [dataAvailable, setDataAvailable] = useState(true);
-  const [isStaleData, setIsStaleData] = useState(false);
-  const [realTimeData, setRealTimeData] = useState<{
-    totalSpaces: number;
-    freeSpaces: number;
-    handicappedTotal: number;
-    handicappedFree: number;
-  } | null>(null);
-  const [stats, setStats] = useState<ParkingStats[]>([]);
-  const [forecasts, setForecasts] = useState<Forecast[]>([]);
+export default function ParkingCard({ parking, onClose, onToggleFavorite, allParkings, interceptingParkings = [] }: ParkingCardProps) {
+  // Определяем, является ли парковка перехватывающей по типу из данных
+  const [isIntercepting, setIsIntercepting] = useState<boolean | null>(null);
+  const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
   
-  // Добавляем ref для отслеживания активных запросов
-  const activeRequestsRef = useRef<{[key: string]: boolean}>({});
-  // Добавляем timestamp последнего успешного запроса
-  const lastRequestTimeRef = useRef<{[key: string]: number}>({});
-  // Минимальный интервал между запросами (5 секунд)
-  const MIN_REQUEST_INTERVAL = 5000;
-  
-  // Немедленно загружаем данные при монтировании компонента
+  // Проверяем тип парковки при монтировании компонента
   useEffect(() => {
-    console.log(`Loading initial data for parking ${parking.id}...`);
-    const loadInitialData = async () => {
-      try {
-        const timestamp = new Date().getTime();
-        console.log(`Fetching API: /api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`);
-        
-        const response = await fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`);
-        console.log(`API response status: ${response.status}`);
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch parking data: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        console.log("API response data:", data);
-        
-        if (data) {
-          if ('dataAvailable' in data && data.dataAvailable === false) {
-            console.log("Data marked as unavailable");
-            setDataAvailable(false);
-            setRealTimeData(null);
-          } else {
-            console.log("Data available, updating state");
-            setDataAvailable(true);
-            setIsStaleData('isStale' in data && data.isStale === true);
-            setRealTimeData(data);
-          }
-        } else {
-          console.log("No data received from API");
-          setDataAvailable(false);
-          setRealTimeData(null);
-        }
-      } catch (error) {
-        console.error("Error in initial data load:", error);
-        setDataAvailable(false);
-        
-        // Fallback: try using getParkingRealTimeData helper after a short delay
-        setTimeout(() => {
-          console.log("Trying fallback data loading method...");
-          getParkingRealTimeData(parking.id)
-            .then(data => {
-              if (data) {
-                setRealTimeData(data);
-                setDataAvailable(!('dataAvailable' in data && data.dataAvailable === false));
-                console.log("Fallback data loaded successfully");
-              }
-            })
-            .catch(e => console.error("Fallback data loading failed:", e))
-            .finally(() => setIsLoadingData(false));
-        }, 500);
-      } finally {
-        setIsLoadingData(false);
-      }
-    };
-
-    // Вызываем загрузку данных немедленно
-    loadInitialData();
-  }, [parking.id]);
-  
-  useEffect(() => {
-    let isMounted = true;
-    let retryCount = 0;
-    const maxRetries = 3;
+    // Проверяем, есть ли свойство isIntercepting в объекте парковки
+    if (parking.isIntercepting !== undefined) {
+      console.log(`Parking type determined from isIntercepting property: ${parking.isIntercepting}`);
+      setIsIntercepting(parking.isIntercepting);
+      setIsLoadingData(false);
+      return;
+    }
     
-    const fetchRealTimeData = async () => {
-      // Предотвращаем параллельные запросы к одному и тому же эндпоинту
-      if (activeRequestsRef.current['liveData']) {
+    // Проверяем, есть ли парковка в массиве перехватывающих парковок
+    if (interceptingParkings && interceptingParkings.length > 0) {
+      const isInInterceptingArray = interceptingParkings.some(p => p.id === parking.id);
+      if (isInInterceptingArray) {
+        console.log(`Parking ${parking.id} found in interceptingParkings array`);
+        setIsIntercepting(true);
+        setIsLoadingData(false);
         return;
       }
-      
-      // Всегда загружаем свежие данные при открытии карточки
-      setIsLoadingData(true);
-      activeRequestsRef.current['liveData'] = true;
-      
-      try {
-        // Всегда используем noCache=true для гарантированного получения данных
-        const timestamp = new Date().getTime();
-        const response = await fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`);
-        
-            if (!response.ok) {
-              throw new Error(`Failed to fetch parking data: ${response.statusText}`);
-            }
-        
-        const data = await response.json();
-          
-        if (isMounted) {
-          if (data) {
-            // Проверяем наличие флага dataAvailable
-            if ('dataAvailable' in data && data.dataAvailable === false) {
-              setDataAvailable(false);
-              setRealTimeData(null);
-            } else {
-              setDataAvailable(true);
-              // Проверяем наличие флага isStale (устаревшие данные из кэша)
-              setIsStaleData('isStale' in data && data.isStale === true);
-              setRealTimeData(data);
-            }
-          } else {
-            setDataAvailable(false);
-            setRealTimeData(null);
-          }
+    }
+    
+    // Если тип указан напрямую в объекте парковки
+    if (parking.type) {
+      console.log(`Parking type determined from parking object: ${parking.type}`);
+      setIsIntercepting(parking.type === "intercepting");
           setIsLoadingData(false);
-          lastRequestTimeRef.current['liveData'] = Date.now();
-        }
-      } catch (error) {
-        if (isMounted) {
-          console.error("Error fetching parking data:", error);
-          
-          // Пробуем повторить запрос с увеличивающейся задержкой
-          if (retryCount < maxRetries) {
-            retryCount++;
-            console.log(`Retrying fetch attempt ${retryCount}...`);
-            // Экспоненциальная задержка: 1 секунда, затем 2, затем 4
-            const delay = Math.pow(2, retryCount - 1) * 1000;
-            setTimeout(fetchRealTimeData, delay);
             return;
           }
           
+    // Ищем парковку в общем списке, чтобы узнать её тип
+    if (allParkings && allParkings.length > 0) {
+      const parkingData = allParkings.find(p => p.id === parking.id);
+      if (parkingData && parkingData.type) {
+        console.log(`Parking type determined from allParkings: ${parkingData.type}`);
+        setIsIntercepting(parkingData.type === "intercepting");
           setIsLoadingData(false);
-          setDataAvailable(false);
-          setRealTimeData(null);
-        }
-      } finally {
-        activeRequestsRef.current['liveData'] = false;
+        return;
       }
-    };
+    }
     
-    // Функция для загрузки прогнозов
-    const fetchForecasts = async () => {
-      if (activeRequestsRef.current['forecasts']) {
-        return;
-      }
-      
-      // Добавляем noCache для обхода кэширования и получения актуальных данных
-      const timestamp = new Date().getTime();
-      activeRequestsRef.current['forecasts'] = true;
-      
-      try {
-        const response = await fetch(`/api/parkings/${parking.id}/forecast?noCache=true&t=${timestamp}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.forecasts && data.forecasts.length > 0) {
-            console.log(`Получены прогнозы для парковки ${parking.id}:`, data.forecasts.length);
-            
-            // Проверяем, что у нас есть разные значения для свободных мест
-            const uniqueValues = new Set(data.forecasts.map((f: any) => f.expected_free_spaces));
-            console.log(`Уникальных значений свободных мест: ${uniqueValues.size}`);
-            
-            // Отладочная информация о первых нескольких прогнозах
-            console.log("Примеры прогнозов:", data.forecasts.slice(0, 3));
-            
-            setForecasts(data.forecasts);
-            
-            // Отладочная информация о метаданных
-            if (data.meta) {
-              console.log("Метаданные прогноза:", data.meta);
-            }
-          } else {
-            console.log(`Нет прогнозов для парковки ${parking.id}`);
-            // Устанавливаем пустой массив для forecasts, чтобы компонент знал, что данные загружены
-            setForecasts([]);
-          }
-          lastRequestTimeRef.current['forecasts'] = Date.now();
-        } else if (response.status === 404) {
-          // Для 404 ошибки (нет данных) не показываем ошибку, просто устанавливаем пустой массив
-          console.log(`Нет данных прогноза для парковки ${parking.id} (404)`);
-          setForecasts([]);
-          lastRequestTimeRef.current['forecasts'] = Date.now();
-        } else {
-          console.error(`Ошибка ответа API прогноза: ${response.status}`);
+    // Проверяем наличие данных о свободных местах в объекте парковки
+    // Если есть данные о свободных местах, то это перехватывающая парковка
+    if (parking.freeSpaces !== undefined || parking.totalSpaces !== undefined) {
+      console.log(`Parking type determined from spaces data: intercepting`);
+      setIsIntercepting(true);
+      setIsLoadingData(false);
+          return;
         }
-      } catch (error) {
-        console.error("Ошибка при получении прогнозов:", error);
-      } finally {
-        activeRequestsRef.current['forecasts'] = false;
-        // Always reset loading state when forecast fetch completes
-        setIsLoadingData(false);
-      }
-    };
-    
-    // Also fetch stats for historical data
-    const fetchStats = async () => {
-      // Предотвращаем параллельные запросы
-      if (activeRequestsRef.current['stats']) {
-        return;
-      }
-      
-      // Проверяем интервал между запросами
-      const lastRequestTime = lastRequestTimeRef.current['stats'] || 0;
-      const now = Date.now();
-      if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
-        return;
-      }
-      
-      activeRequestsRef.current['stats'] = true;
-      
-      try {
-        // Добавляем параметр noCache и текущее время для предотвращения кэширования
+        
+    // Если тип не удалось определить из данных, делаем запрос API
+    // только для проверки, является ли парковка перехватывающей
+    try {
+      console.log(`Checking if parking ${parking.id} is intercepting via API...`);
+      const checkParkingType = async () => {
         const timestamp = new Date().getTime();
-        const response = await fetch(`/api/parkings/${parking.id}/stats?noCache=true&t=${timestamp}`);
-        if (response.ok && isMounted) {
-          const data = await response.json();
-          
-          // Ensure we have data for all 24 hours (0-23)
-          const completeStats = Array(24).fill(null).map((_, hour) => {
-            const hourData = data.stats?.find((stat: ParkingStats) => stat.hour === hour);
-            return hourData || {
-              hour,
-              avg_free_spaces: 0,
-              avg_occupancy: 0.5, // Default 50% occupancy for missing data
-            };
-          });
-          
-          setStats(completeStats);
-          lastRequestTimeRef.current['stats'] = now;
+        const response = await fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`);
+        
+        if (response.ok) {
+        const data = await response.json();
+          // Если данные успешно загружены, считаем парковку перехватывающей
+          const isInterceptingValue = data && !('dataAvailable' in data && data.dataAvailable === false);
+          console.log(`API check result: parking is ${isInterceptingValue ? 'intercepting' : 'regular'}`);
+          setIsIntercepting(isInterceptingValue);
+        } else {
+          console.log(`API check failed, assuming regular parking`);
+          setIsIntercepting(false);
         }
+        setIsLoadingData(false);
+      };
+      
+      checkParkingType();
       } catch (error) {
-        console.error("Error fetching parking stats:", error);
-      } finally {
-        activeRequestsRef.current['stats'] = false;
-      }
-    };
-    
-    fetchRealTimeData();
-    fetchStats();
-    fetchForecasts(); // Добавляем загрузку прогнозов
-    
-    // Обновляем прогнозы каждые 5 минут
-    const forecastInterval = setInterval(fetchForecasts, 5 * 60 * 1000);
-    
-    return () => {
-      isMounted = false;
-      clearInterval(forecastInterval);
-    };
-  }, [parking.id, toast]);
-
-  // Добавляем useEffect для отслеживания статуса загруженных прогнозов
-  useEffect(() => {
-    // Если forecasts получены и isLoadingData все еще true, сбрасываем loading state
-    if (forecasts && forecasts.length > 0 && isLoadingData) {
+      console.error("Error checking if parking is intercepting:", error);
+      setIsIntercepting(false);
       setIsLoadingData(false);
     }
-  }, [forecasts]);
+  }, [parking, allParkings, interceptingParkings]);
 
-  // Добавляем useEffect для установки тайм-аута, чтобы предотвратить бесконечную загрузку
-  useEffect(() => {
-    // Если загрузка длится больше 10 секунд, сбрасываем состояние загрузки
-    if (isLoadingData) {
-      const timeout = setTimeout(() => {
-        setIsLoadingData(false);
-      }, 10000); // 10 секунд максимум для загрузки
+  // Функция для безопасного закрытия карточки
+  const handleClose = () => {
+    // Отправляем событие для предотвращения автоцентрирования
+    window.dispatchEvent(new Event('prevent-auto-center'));
+    
+    // Закрываем карточку
+    onClose();
+  };
       
-      return () => clearTimeout(timeout);
-    }
-  }, [isLoadingData]);
-
-  const openInYandexMaps = () => {
-    // Use lng if available, fall back to lon, and if neither is available, use a default longitude
-    const longitude = parking.lng || parking.lon || 37.6156; // Default to Moscow center longitude if nothing available
-    
-    window.open(
-      `https://yandex.ru/maps/?rtext=~${parking.lat},${longitude}`,
-      "_blank"
-    );
-  };
-  
-  const getStatusClass = () => {
-    if (!realTimeData || realTimeData.totalSpaces === 0) return "bg-gray-400";
-    
-    const freePercentage = (realTimeData.freeSpaces / realTimeData.totalSpaces) * 100;
-    
-    if (freePercentage >= 30) return "bg-green-500"; // Plenty of spaces
-    if (freePercentage >= 10) return "bg-amber-500"; // Limited spaces
-    return "bg-red-500"; // Nearly full
-  };
-
-  const getAvailabilityColor = () => {
-    if (!realTimeData || realTimeData.totalSpaces === 0) return { bg: "bg-gray-100", text: "text-gray-500" };
-    
-    const freePercentage = (realTimeData.freeSpaces / realTimeData.totalSpaces) * 100;
-    
-    if (freePercentage >= 30) return { bg: "bg-green-50", text: "text-green-600" };
-    if (freePercentage >= 10) return { bg: "bg-amber-50", text: "text-amber-600" };
-    return { bg: "bg-pink-50", text: "text-red-500" };
-  };
-
-  // Функция для форматирования часа (0 -> 00:00, 13 -> 13:00)
-  const formatHour = (hour: number) => {
-    return `${hour.toString().padStart(2, '0')}:00`;
-  };
-
-  // Функция для определения текущего часа в Москве (текущее локальное время уже московское)
-  const getCurrentMoscowHour = () => {
-    const now = new Date();
-    // Возвращаем текущий локальный час, так как он уже московский
-    return now.getHours();
-  };
-
-  // Функция для расчета часа прогноза (+3 часа от текущего московского времени)
-  const getForecastHour = () => {
-    const currentHour = getCurrentMoscowHour();
-    return currentHour; // Возвращаем текущий час, а не +3 часа
-  };
-
-  // Функция для определения, является ли час текущим
-  const isCurrentHour = (timestamp: string) => {
-    const currentHour = getCurrentMoscowHour();
-    const forecastHour = new Date(timestamp).getHours();
-    return currentHour === forecastHour;
-  };
-
-  const renderForecastChart = () => {
-    if (isLoadingData && forecasts.length === 0) {
-      // Данные еще загружаются
-      return (
-        <div className="text-center py-4 text-sm text-gray-500">
-          Данные о прогнозе загруженности загружаются...
-        </div>
-      );
-    }
-    
-    // Если данные загружены, но пусты - значит, прогнозов нет
-    if (!isLoadingData && forecasts.length === 0) {
-      return (
-        <div className="text-center py-4 text-sm text-gray-500">
-          Для данной парковки нет прогноза загруженности
-        </div>
-      );
-    }
-
-    // Получаем текущий час в Москве для выделения текущего часа
-    const currentMoscowHour = getCurrentMoscowHour();
-    
-    // Получаем час прогноза (текущий московский час)
-    const forecastHour = getForecastHour();
-    
-    // Отладочная информация
-    console.log("Текущий час в Москве:", currentMoscowHour);
-    console.log("Час прогноза:", forecastHour);
-    
-    // Сортируем прогнозы по часам, начиная с текущего часа
-    const sortedForecasts = [...forecasts].sort((a, b) => {
-      const hourA = new Date(a.timestamp).getHours();
-      const hourB = new Date(b.timestamp).getHours();
-      
-      // Вычисляем "расстояние" от текущего часа (0-23 часа)
-      const distA = (hourA - currentMoscowHour + 24) % 24;
-      const distB = (hourB - currentMoscowHour + 24) % 24;
-      
-      return distA - distB;
-    });
-    
-    // Берем все 24 часа для отображения
-    const visibleForecasts = sortedForecasts.slice(0, 24);
-    
-    return (
-      <div className="relative py-4">
-        <div className="text-sm font-medium mb-2 text-center">Прогноз загруженности на 24 часа</div>
-        <div className="text-xs text-muted-foreground mb-1 text-center">← прокрутите для просмотра всех часов →</div>
-        
-        <div className="overflow-x-auto pb-6">
-          <div className="flex space-x-2 min-w-max">
-            {visibleForecasts.map((forecast, index) => {
-              const date = new Date(forecast.timestamp);
-              const hour = date.getHours();
-              const occupancy = forecast.expected_occupancy;
-              const freeSpaces = forecast.expected_free_spaces;
-              const isCurrentHourBar = hour === currentMoscowHour;
-              const isForecastHourBar = hour === forecastHour;
-              
-              // Определяем цвет на основе заполненности
-              const getBarColor = () => {
-                if (occupancy < 0.6) return "bg-green-500"; // Свободно
-                if (occupancy < 0.8) return "bg-amber-500"; // Средне
-                return "bg-red-500"; // Занято
-              };
-              
-              const barHeight = `${Math.max(5, Math.round(occupancy * 100))}%`;
-              
-              // Убеждаемся, что freeSpaces - это число и оно корректное
-              const validFreeSpaces = typeof freeSpaces === 'number' && !isNaN(freeSpaces) 
-                ? Math.round(freeSpaces) 
-                : 0;
-              
-              return (
-                <div key={index} className="flex flex-col items-center">
-                  <div className="text-xs font-medium">{validFreeSpaces}</div>
-                  <div className="relative h-32 w-10">
-                    <div 
-                      className={`absolute bottom-0 w-full ${getBarColor()} rounded-t-sm`} 
-                      style={{ height: barHeight }}
-                    ></div>
-                  </div>
-                  <div className={`text-xs mt-1 ${isCurrentHourBar ? 'font-bold bg-blue-100 px-1 rounded' : ''} ${isForecastHourBar ? 'font-bold bg-purple-100 px-1 rounded' : ''}`}>
-                    {formatHour(hour)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isFavoriteLoading, setIsFavoriteLoading] = useState(false);
-
-  const toggleFavorite = async () => {
-    setIsFavoriteLoading(true);
-    try {
-      await onToggleFavorite();
-    } finally {
-      setIsFavoriteLoading(false);
-    }
-  };
-
+  // Если данные еще не загружены, показываем индикатор загрузки
+  if (isLoadingData || isIntercepting === null) {
   return (
     <div className="relative">
-      <Card className={`w-full max-w-md mx-auto overflow-hidden card-animated ${isExpanded ? 'shadow-lg' : ''}`}>
+        <Card className="w-full max-w-md mx-auto overflow-hidden card-animated">
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between">
             <div>
               <CardTitle className="text-lg font-bold flex items-center">
                 {parking.name}
-                {parking.isFavorite && (
-                  <Star className="h-4 w-4 ml-2 text-amber-500 fill-amber-500 animate-fadeInUp" />
-                )}
               </CardTitle>
               <CardDescription className="text-sm">
                 {parking.street} {parking.house}
               </CardDescription>
-              {parking.subway && (
-                <div className="text-xs mt-1 inline-block px-2 py-1 bg-blue-100 rounded-full">
-                  Метро {parking.subway}
-                </div>
-              )}
             </div>
-            <div className="flex gap-1">
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 rounded-full btn-animated"
-                onClick={toggleFavorite}
-              >
-                {isFavoriteLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : parking.isFavorite ? (
-                  <Heart className="h-4 w-4 text-red-500 fill-red-500" />
-                ) : (
-                  <HeartOff className="h-4 w-4" />
-                )}
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 rounded-full btn-animated"
-                onClick={() => onClose()}
+                onClick={handleClose}
               >
                 <X className="h-4 w-4" />
               </Button>
-            </div>
           </div>
         </CardHeader>
-        
-        <CardContent className="pb-2">
-          <Tabs defaultValue="status">
-            <TabsList className="w-full grid grid-cols-3">
-              <TabsTrigger value="status">Статус</TabsTrigger>
-              <TabsTrigger value="forecast">Прогноз</TabsTrigger>
-              <TabsTrigger value="recommendation">Рекомендация</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="status" className="space-y-2 pt-2">
-              {isLoadingData || !realTimeData ? (
-                <div className="h-32 flex flex-col items-center justify-center text-center">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
-                </div>
-              ) : realTimeData && dataAvailable ? (
-                <>
-                  {isStaleData && (
-                    <div className="mb-2 text-xs text-amber-600 bg-amber-50 p-1 rounded text-center">
-                      Данные могут быть устаревшими. <button 
-                        className="underline hover:text-amber-700"
-                        onClick={() => {
-                          // Предотвращаем повторные запросы
-                          if (activeRequestsRef.current['liveData']) {
-                            return;
-                          }
-                          
-                          // Проверяем, не слишком ли часто отправляем запросы
-                          const lastRequestTime = lastRequestTimeRef.current['liveData'] || 0;
-                          const now = Date.now();
-                          if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
-                            toast({
-                              title: "Подождите",
-                              description: "Данные можно обновлять не чаще раза в 5 секунд",
-                              variant: "default",
-                            });
-                            return;
-                          }
-                          
-                          setIsLoadingData(true);
-                          setIsStaleData(false);
-                          activeRequestsRef.current['liveData'] = true;
-                          
-                          // Используем прямой fetch вместо вспомогательной функции
-                          const timestamp = new Date().getTime();
-                          fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`)
-                            .then(response => {
-                              if (!response.ok) {
-                                throw new Error(`Failed to fetch parking data: ${response.statusText}`);
-                              }
-                              return response.json();
-                            })
-                              .then(data => {
-                                if (data) {
-                                  if ('dataAvailable' in data && data.dataAvailable === false) {
-                                    setDataAvailable(false);
-                                    setRealTimeData(null);
-                                  } else {
-                                    setRealTimeData(data);
-                                    setDataAvailable(true);
-                                    setIsStaleData('isStale' in data && data.isStale === true);
-                                  }
-                                } else {
-                                  setDataAvailable(false);
-                                  setRealTimeData(null);
-                                }
-                                lastRequestTimeRef.current['liveData'] = now;
-                              })
-                            .catch(error => {
-                              console.error("Error fetching parking data:", error);
-                                setDataAvailable(false);
-                                setRealTimeData(null);
-                              })
-                              .finally(() => {
-                                setIsLoadingData(false);
-                                activeRequestsRef.current['liveData'] = false;
-                              });
-                        }}
-                      >
-                        Обновить
-                      </button>
-                    </div>
-                  )}
-                  <div className="flex gap-2 py-2">
-                    <div className={`flex-1 p-3 rounded-md ${getAvailabilityColor().bg} flex flex-col items-center`}>
-                      <div className="flex items-center justify-center gap-2">
-                        <span className={getAvailabilityColor().text}>
-                          <Car size={16} />
-                        </span>
-                        <p className={`text-sm font-medium ${getAvailabilityColor().text}`}>Свободно мест</p>
-                      </div>
-                      <p className={`text-xl font-bold ${getAvailabilityColor().text} mt-1 text-center`}>
-                        {realTimeData.freeSpaces} / {realTimeData.totalSpaces}
-                      </p>
-                    </div>
-                    
-                    {realTimeData.handicappedTotal > 0 && (
-                      <div className="flex-1 p-3 rounded-md bg-gray-100 flex flex-col items-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <span className="text-gray-600">
-                            <Accessibility size={16} />
-                          </span>
-                          <p className="text-sm font-medium text-gray-600">Для людей с ограниченными возможностями</p>
-                        </div>
-                        <p className="text-xl font-bold text-gray-700 mt-1 text-center">
-                          {realTimeData.handicappedFree} / {realTimeData.handicappedTotal}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Occupancy progress bar */}
-                  {realTimeData.totalSpaces > 0 && (
-                    <div className="mt-2">
-                      <div className="w-full bg-gray-200 rounded-full h-2.5">
-                        <div 
-                          className={`${getStatusClass()} h-2.5 rounded-full`} 
-                          style={{ width: `${(realTimeData.freeSpaces / realTimeData.totalSpaces) * 100}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="h-32 flex items-center justify-center text-center">
-                  <div className="text-center">
-                    <p className="text-sm text-muted-foreground mb-2">
-                      Данные о загруженности недоступны
-                    </p>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => {
-                        // Предотвращаем повторные запросы
-                        if (activeRequestsRef.current['liveData']) {
-                          return;
-                        }
-                        
-                        // Проверяем, не слишком ли часто отправляем запросы
-                        const lastRequestTime = lastRequestTimeRef.current['liveData'] || 0;
-                        const now = Date.now();
-                        if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
-                          toast({
-                            title: "Подождите",
-                            description: "Данные можно обновлять не чаще раза в 5 секунд",
-                            variant: "default",
-                          });
-                          return;
-                        }
-                        
-                        setIsLoadingData(true);
-                        activeRequestsRef.current['liveData'] = true;
-                        
-                        // Используем прямой fetch вместо вспомогательной функции
-                        const timestamp = new Date().getTime();
-                        fetch(`/api/parkings/${parking.id}/live?noCache=true&t=${timestamp}`)
-                          .then(response => {
-                            if (!response.ok) {
-                              throw new Error(`Failed to fetch parking data: ${response.statusText}`);
-                            }
-                            return response.json();
-                          })
-                            .then(data => {
-                              if (data) {
-                              // Проверяем наличие флага dataAvailable
-                              if ('dataAvailable' in data && data.dataAvailable === false) {
-                                setDataAvailable(false);
-                                setRealTimeData(null);
-                              } else {
-                                setDataAvailable(true);
-                                // Проверяем наличие флага isStale
-                                setIsStaleData('isStale' in data && data.isStale === true);
-                                setRealTimeData(data);
-                              }
-                              } else {
-                                setDataAvailable(false);
-                              setRealTimeData(null);
-                              }
-                              lastRequestTimeRef.current['liveData'] = now;
-                            })
-                          .catch(error => {
-                            console.error("Error fetching parking data:", error);
-                            setDataAvailable(false);
-                            setRealTimeData(null);
-                          })
-                            .finally(() => {
-                              setIsLoadingData(false);
-                              activeRequestsRef.current['liveData'] = false;
-                            });
-                      }}
-                    >
-                      <Loader2 className="h-3 w-3 mr-1" /> Обновить
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </TabsContent>
-            
-            <TabsContent value="forecast" className="pt-2">
-              {forecasts && forecasts.length > 0 ? (
-                renderForecastChart()
-              ) : isLoadingData ? (
-                <div className="h-32 flex flex-col items-center justify-center text-center">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground mt-2">Загрузка данных...</p>
-                </div>
-              ) : (
-                <div className="h-32 flex flex-col items-center justify-center text-center">
-                  <Activity className="h-8 w-8 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Для данной парковки нет прогноза загруженности
-                  </p>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    className="mt-2" 
-                    onClick={() => {
-                      // Предотвращаем повторные запросы
-                      if (activeRequestsRef.current['forecasts']) {
-                        return;
-                      }
-                      
-                      // Проверяем интервал между запросами
-                      const lastRequestTime = lastRequestTimeRef.current['forecasts'] || 0;
-                      const now = Date.now();
-                      if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
-                        toast({
-                          title: "Подождите",
-                          description: "Данные можно обновлять не чаще раза в 5 секунд",
-                          variant: "default",
-                        });
-                        return;
-                      }
-                      
-                      setIsLoadingData(true);
-                      activeRequestsRef.current['forecasts'] = true;
-                      
-                      setTimeout(() => {
-                        // Прямой запрос для отладки
-                        fetch(`/api/parkings/${parking.id}/forecast?noCache=true&t=${Date.now()}`)
-                          .then(response => {
-                            console.log("Forecast API status:", response.status);
-                            if (response.status === 404) {
-                              // Для 404 не выбрасываем ошибку, просто устанавливаем пустой массив
-                              console.log(`Нет данных прогноза для парковки ${parking.id} (404)`);
-                              setForecasts([]);
-                              lastRequestTimeRef.current['forecasts'] = now;
-                              return null; // Прерываем цепочку then
-                            } else if (!response.ok) {
-                              throw new Error(`Failed to fetch parking forecasts: ${response.statusText}`);
-                            }
-                            return response.json();
-                          })
-                          .then(data => {
-                            if (!data) return; // Если прервали выше из-за 404, выходим
-                            
-                            console.log("Raw forecast data:", data);
-                            if (data.forecasts && data.forecasts.length > 0) {
-                              console.log(`Setting ${data.forecasts.length} forecasts`);
-                              setForecasts(data.forecasts);
-                            } else {
-                              console.warn("No forecasts in response:", data);
-                              setForecasts([]); // Устанавливаем пустой массив
-                            }
-                            lastRequestTimeRef.current['forecasts'] = now;
-                          })
-                          .catch(error => {
-                            console.error("Error fetching parking forecasts:", error);
-                          })
-                          .finally(() => {
-                            setIsLoadingData(false);
-                            activeRequestsRef.current['forecasts'] = false;
-                          });
-                      }, 300);
-                    }}
-                  >
-                    <Loader2 className="h-3 w-3 mr-1" /> Обновить
-                  </Button>
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="recommendation" className="pt-2">
-              <ParkingRecommendation
-                parking={parking}
-                allParkings={allParkings}
-                onParkingSelect={(selectedParking) => {
-                  onClose();
-                  // Вызов обработчика выбора парковки в родительском компоненте
-                  window.dispatchEvent(new CustomEvent('select-parking', { 
-                    detail: { parking: selectedParking } 
-                  }));
-                }}
-              />
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-        
-        <CardFooter className="flex justify-between items-center p-4 pt-0 gap-2">
-          <Button onClick={openInYandexMaps} className="w-[110px] whitespace-nowrap shrink-0 btn-animated">
-            <MapPin className="mr-2 h-4 w-4" /> Маршрут
-          </Button>
-          
-          <div className="flex-1">
-            <Button 
-              variant="outline" 
-              className="w-full btn-animated"
-              onClick={() => setIsExpanded(!isExpanded)}
-            >
-              {isExpanded ? "Свернуть" : "Подробнее"}
-            </Button>
+          <CardContent className="pb-2 flex items-center justify-center p-8">
+            <div className="text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+              <p className="mt-2 text-sm text-gray-500">Загрузка данных...</p>
+            </div>
+          </CardContent>
+        </Card>
           </div>
-        </CardFooter>
-      </Card>
-    </div>
+    );
+  }
+
+  // После инициализации показываем соответствующую карточку
+  return isIntercepting ? (
+    <InterceptingParkingCard 
+                    parking={parking}
+      onClose={onClose} 
+      onToggleFavorite={onToggleFavorite} 
+                    allParkings={allParkings}
+    />
+  ) : (
+    <RegularParkingCard 
+      parking={parking} 
+      onClose={onClose} 
+      onToggleFavorite={onToggleFavorite} 
+    />
   );
 }

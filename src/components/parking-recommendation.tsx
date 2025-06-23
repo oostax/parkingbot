@@ -2,17 +2,19 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTelegramLocation } from '@/hooks/use-telegram-location';
 import { getParkingRecommendations } from '@/lib/recommendation-service';
 import { ParkingInfo } from '@/types/parking';
-import { Clock, Car, MapPin, AlertTriangle, ThumbsUp, Map, Calendar } from 'lucide-react';
+import { Clock, Car, MapPin, AlertTriangle, ThumbsUp, Map, Calendar, Navigation } from 'lucide-react';
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 interface ParkingRecommendationProps {
   parking: ParkingInfo;
   allParkings: ParkingInfo[];
-  onParkingSelect: (parking: ParkingInfo) => void;
+  onParkingSelect: (parking: ParkingInfo | null) => void;
 }
 
 export default function ParkingRecommendation({ 
@@ -20,10 +22,11 @@ export default function ParkingRecommendation({
   allParkings,
   onParkingSelect
 }: ParkingRecommendationProps) {
+  const [userLocation, setUserLocation] = useState<GeolocationPosition | null>(null);
+  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [recommendation, setRecommendation] = useState<any>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [showAlternatives, setShowAlternatives] = useState(false);
-  const { location, loading: locationLoading, error: locationError, requestLocation } = useTelegramLocation();
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
   
   // Добавляем мемоизацию ID парковки, чтобы отслеживать реальные изменения
   const [lastProcessedParkingId, setLastProcessedParkingId] = useState<string | null>(null);
@@ -40,44 +43,190 @@ export default function ParkingRecommendation({
     return `${hours}:${minutes}`;
   };
 
+  // Проверяем, есть ли сохраненное местоположение в sessionStorage
   useEffect(() => {
-    const loadRecommendation = async () => {
-      // Проверяем, что у нас есть локация и парковка
-      if (!location || !parking || !parking.id) {
-        setLoading(false);
-        return;
-      }
-      
-      // Пропускаем повторную обработку той же самой парковки
-      if (lastProcessedParkingId === parking.id) {
-        return;
-      }
-      
+    const savedLocation = sessionStorage.getItem('userLocation');
+    if (savedLocation) {
       try {
-        setLoading(true);
-        const result = await getParkingRecommendations(location, parking, allParkings);
-        setRecommendation(result);
-        setLastProcessedParkingId(parking.id);
-      } catch (error) {
-        console.error('Ошибка при получении рекомендаций:', error);
-      } finally {
-        setLoading(false);
+        const parsedLocation = JSON.parse(savedLocation);
+        // Создаем объект, имитирующий GeolocationPosition
+        setUserLocation({
+          coords: {
+            latitude: parsedLocation.latitude,
+            longitude: parsedLocation.longitude,
+            accuracy: parsedLocation.accuracy || 0,
+            altitude: null,
+            altitudeAccuracy: null,
+            heading: null,
+            speed: null
+          },
+          timestamp: parsedLocation.timestamp || Date.now()
+        } as GeolocationPosition);
+      } catch (e) {
+        console.error('Ошибка при парсинге сохраненного местоположения:', e);
       }
+    }
+  }, []);
+
+  // Автоматически запрашиваем рекомендацию при первой загрузке с местоположением
+  useEffect(() => {
+    if (userLocation && !recommendation && !isLoading) {
+      getRecommendation(userLocation);
+    }
+  }, [userLocation, recommendation, isLoading]);
+
+  const getUserLocation = () => {
+    setIsLoadingLocation(true);
+    
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation(position);
+          // Сохраняем местоположение в sessionStorage
+          sessionStorage.setItem('userLocation', JSON.stringify({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            timestamp: position.timestamp
+          }));
+          setIsLoadingLocation(false);
+          getRecommendation(position);
+        },
+        (error) => {
+          console.error("Ошибка получения местоположения:", error);
+          setIsLoadingLocation(false);
+          toast({
+            title: "Ошибка геолокации",
+            description: "Не удалось получить ваше местоположение. Пожалуйста, проверьте настройки браузера.",
+            variant: "destructive",
+          });
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      );
+    } else {
+      setIsLoadingLocation(false);
+      toast({
+        title: "Геолокация не поддерживается",
+        description: "Ваш браузер не поддерживает геолокацию.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const getRecommendation = async (position: GeolocationPosition) => {
+    setIsLoading(true);
+    
+    try {
+      const response = await fetch(`/api/parkings/recommend?lat=${position.coords.latitude}&lon=${position.coords.longitude}&targetId=${parking.id}`);
+      
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      setRecommendation(data);
+    } catch (error) {
+      console.error("Error fetching recommendations:", error);
+      toast({
+        title: "Ошибка получения рекомендаций",
+        description: "Не удалось получить рекомендации по парковкам.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Функция для анализа парковок и выбора лучшей альтернативы
+  const analyzeParking = () => {
+    if (!recommendation || !recommendation.alternatives || recommendation.alternatives.length === 0) {
+      return {
+        hasBetterOption: false,
+        message: "Нет доступных альтернатив для анализа",
+        bestAlternative: null
+      };
+    }
+    
+    // Текущая парковка
+    const currentParking = recommendation.alternatives.find((alt: any) => alt.id === parking.id);
+    
+    // Если текущей парковки нет в списке, возвращаем первую альтернативу
+    if (!currentParking) {
+      return {
+        hasBetterOption: true,
+        message: "Найдена более удобная парковка поблизости",
+        bestAlternative: recommendation.alternatives[0]
+      };
+    }
+    
+    // Ищем парковки с большим количеством свободных мест
+    const betterOccupancy = recommendation.alternatives.filter((alt: any) => 
+      alt.id !== parking.id && 
+      alt.freeSpaces > currentParking.freeSpaces &&
+      alt.freeSpaces / alt.totalSpaces > 0.2 // Минимум 20% свободных мест
+    );
+    
+    // Ищем парковки, которые ближе по времени
+    const closerParking = recommendation.alternatives.filter((alt: any) => 
+      alt.id !== parking.id && 
+      alt.time < currentParking.time * 0.8 && // Минимум на 20% быстрее
+      alt.freeSpaces > 0 // Есть свободные места
+    );
+    
+    // Если есть парковки с лучшей заполненностью
+    if (betterOccupancy.length > 0) {
+      // Сортируем по количеству свободных мест (от большего к меньшему)
+      betterOccupancy.sort((a: any, b: any) => b.freeSpaces - a.freeSpaces);
+      
+      return {
+        hasBetterOption: true,
+        message: `Парковка "${betterOccupancy[0].name}" имеет больше свободных мест (${betterOccupancy[0].freeSpaces})`,
+        bestAlternative: betterOccupancy[0]
+      };
+    }
+    
+    // Если есть парковки, которые ближе по времени
+    if (closerParking.length > 0) {
+      // Сортируем по времени (от меньшего к большему)
+      closerParking.sort((a: any, b: any) => a.time - b.time);
+      
+      return {
+        hasBetterOption: true,
+        message: `Парковка "${closerParking[0].name}" находится ближе (${closerParking[0].time} мин)`,
+        bestAlternative: closerParking[0]
+      };
+    }
+    
+    // Если текущая парковка заполнена более чем на 90%
+    if (currentParking.freeSpaces / currentParking.totalSpaces < 0.1) {
+      // Ищем любую альтернативу с более свободными местами
+      const anyBetter = recommendation.alternatives.find((alt: any) => 
+        alt.id !== parking.id && 
+        alt.freeSpaces > currentParking.freeSpaces
+      );
+      
+      if (anyBetter) {
+        return {
+          hasBetterOption: true,
+          message: `Текущая парковка почти заполнена. Рекомендуем "${anyBetter.name}" (${anyBetter.freeSpaces} мест)`,
+          bestAlternative: anyBetter
+        };
+      }
+    }
+    
+    // Если нет лучших вариантов
+    return {
+      hasBetterOption: false,
+      message: "Текущая парковка оптимальна по расположению и заполненности",
+      bestAlternative: null
     };
-
-    loadRecommendation();
-    // Добавляем только необходимые зависимости: локация, ID парковки и lastProcessedParkingId
-  }, [location, parking?.id, lastProcessedParkingId]);
-
-  const handleRequestLocation = async () => {
-    await requestLocation();
   };
 
   if (!parking) {
     return null;
   }
 
-  if (loading || locationLoading) {
+  if (isLoading || isLoadingLocation) {
     return (
       <Card className="mt-4">
         <CardContent className="p-4">
@@ -90,176 +239,158 @@ export default function ParkingRecommendation({
     );
   }
 
-  if (!location && !locationError) {
+  if (!userLocation) {
     return (
-      <Card className="mt-4 border-amber-200">
-        <CardContent className="p-4">
-          <div className="flex flex-col items-center justify-center space-y-3">
-            <AlertTriangle className="text-amber-500 h-6 w-6" />
-            <p className="text-sm text-center">Для персонализированных рекомендаций по парковке необходим доступ к вашему местоположению</p>
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={handleRequestLocation}
-            >
-              <MapPin className="mr-2 h-4 w-4" /> Предоставить доступ
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (locationError) {
-    return (
-      <Card className="mt-4 border-rose-200">
-        <CardContent className="p-4">
-          <div className="flex flex-col items-center justify-center space-y-2">
-            <AlertTriangle className="text-rose-500 h-6 w-6" />
-            <p className="text-sm text-center text-rose-700">{locationError}</p>
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={handleRequestLocation}
-            >
-              <MapPin className="mr-2 h-4 w-4" /> Попробовать снова
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!recommendation) {
-    return null;
-  }
-
-  // Функция для определения стиля и иконки на основе рекомендации
-  const getRecommendationStyle = () => {
-    switch (recommendation.recommendation) {
-      case 'recommended':
-        return {
-          color: 'text-green-600',
-          bgColor: 'bg-green-50',
-          borderColor: 'border-green-200',
-          icon: <ThumbsUp className="text-green-500 h-6 w-6" />
-        };
-      case 'alternative':
-        return {
-          color: 'text-amber-600',
-          bgColor: 'bg-amber-50',
-          borderColor: 'border-amber-200',
-          icon: <Map className="text-amber-500 h-6 w-6" />
-        };
-      case 'not_recommended':
-        return {
-          color: 'text-rose-600',
-          bgColor: 'bg-rose-50',
-          borderColor: 'border-rose-200',
-          icon: <AlertTriangle className="text-rose-500 h-6 w-6" />
-        };
-      default:
-        return {
-          color: 'text-gray-600',
-          bgColor: 'bg-gray-50',
-          borderColor: 'border-gray-200',
-          icon: <AlertTriangle className="text-gray-500 h-6 w-6" />
-        };
-    }
-  };
-
-  const style = getRecommendationStyle();
-  
-  // Вычисляем примерное время прибытия, если есть данные о времени в пути
-  const estimatedArrivalTime = recommendation.travelTime 
-    ? formatArrivalTime(recommendation.travelTime)
-    : null;
-
-  return (
-    <Card className={`mt-4 ${style.borderColor}`}>
-      <CardContent className="p-4">
-        <div className={`flex items-start space-x-3 mb-3 ${style.color}`}>
-          {style.icon}
-          <div>
-            <h3 className="font-medium">Рекомендация</h3>
-            <p className="text-sm">{recommendation.reason}</p>
-          </div>
+      <div className="flex flex-col items-center justify-center p-4 space-y-4 text-center">
+        <AlertTriangle className="h-12 w-12 text-amber-500" />
+        <div>
+          <h3 className="font-medium text-lg">Требуется доступ к местоположению</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Для персонализированных рекомендаций по парковке необходим доступ к вашему местоположению.
+          </p>
         </div>
-        
-        {recommendation.travelTime && (
-          <div className="flex flex-col space-y-2 mb-3">
-            <div className="flex items-center text-sm text-gray-600">
-              <Clock className="h-4 w-4 mr-2 shrink-0" />
-              <span>Время в пути: приблизительно {recommendation.travelTime} мин</span>
-            </div>
-            
-            {estimatedArrivalTime && (
-              <div className="flex items-center text-sm text-gray-600">
-                <Calendar className="h-4 w-4 mr-2 shrink-0" />
-                <span>Примерное прибытие в {estimatedArrivalTime}</span>
-              </div>
-            )}
-          </div>
-        )}
-        
-        {recommendation.availableSpots !== undefined && (
-          <div className="flex items-center text-sm text-gray-600 mb-2">
-            <Car className="h-4 w-4 mr-2" />
-            <span>
-              {recommendation.recommendation === 'recommended' 
-                ? `К вашему прибытию ожидается ${recommendation.availableSpots} свободных мест из ${parking.totalSpaces || '?'}`
-                : `Свободных мест: ${recommendation.availableSpots} из ${parking.totalSpaces || '?'}`
-              }
-            </span>
-          </div>
-        )}
+        <Button 
+          onClick={getUserLocation} 
+          disabled={isLoadingLocation}
+          className="btn-animated"
+        >
+          {isLoadingLocation ? (
+            <>
+              <span className="animate-spin mr-2">◌</span> Получение местоположения...
+            </>
+          ) : (
+            <>
+              <MapPin className="mr-2 h-4 w-4" /> Предоставить доступ
+            </>
+          )}
+        </Button>
+      </div>
+    );
+  }
 
-        {recommendation.alternatives && recommendation.alternatives.length > 0 && (
-          <div className="mt-3">
-            <div 
-              className="flex items-center text-blue-600 cursor-pointer border-t pt-2"
-              onClick={() => setShowAlternatives(!showAlternatives)}
-            >
-              <Map className="h-4 w-4 mr-2" />
-              <span className="text-sm font-medium">
-                {showAlternatives ? 'Скрыть альтернативы' : 'Показать альтернативные парковки'}
-              </span>
-            </div>
+  if (!recommendation && !isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center p-4 space-y-4 text-center">
+        <div>
+          <h3 className="font-medium text-lg">Рекомендации по парковке</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Мы можем подобрать для вас оптимальные варианты парковки поблизости с учетом вашего местоположения.
+          </p>
+        </div>
+        <Button 
+          onClick={() => getRecommendation(userLocation)} 
+          disabled={isLoading}
+          className="btn-animated w-full"
+        >
+          {isLoading ? (
+            <>
+              <span className="animate-spin mr-2">◌</span> Загрузка...
+            </>
+          ) : (
+            <>
+              <MapPin className="mr-2 h-4 w-4" /> Показать рекомендации
+            </>
+          )}
+        </Button>
+      </div>
+    );
+  }
 
-            {showAlternatives && (
-              <div className="space-y-2 mt-2">
-                {recommendation.alternatives.map((alt: any, index: number) => (
-                  <div 
-                    key={index} 
-                    className="border rounded-md p-2 flex justify-between items-center text-sm hover:bg-gray-50 cursor-pointer"
-                    onClick={() => onParkingSelect(alt.parking)}
-                  >
-                    <div>
-                      <p className="font-medium">{alt.parking.name}</p>
-                      <div className="flex items-center text-gray-600 gap-2 mt-1">
-                        <span className="flex items-center">
-                          <Clock className="h-3 w-3 mr-1" />
-                          {alt.travelTime} мин
-                        </span>
-                        <span className="flex items-center">
-                          <Car className="h-3 w-3 mr-1" />
-                          {alt.availableSpots} мест
-                        </span>
-                        {alt.parking.subway && (
-                          <Badge variant="outline" className="text-xs py-0">
-                            M {alt.parking.subway}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    <MapPin className="h-4 w-4 text-blue-500" />
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center p-4 space-y-4 text-center">
+        <div className="animate-spin text-2xl">◌</div>
+        <p className="text-sm text-muted-foreground">Анализируем парковки поблизости...</p>
+      </div>
+    );
+  }
+
+  // Показываем рекомендации в компактном виде
+  return (
+    <div className="p-2 space-y-4">
+      <div className="text-center">
+        <p className="text-sm text-muted-foreground mb-3">
+          Мы можем показать вам оптимальные варианты парковки поблизости с учетом вашего местоположения.
+        </p>
+        
+        {recommendation && recommendation.alternatives && recommendation.alternatives.length > 0 && (
+          <div className="mb-4 p-3 bg-blue-50 rounded-md text-sm">
+            {(() => {
+              const analysis = analyzeParking();
+              if (analysis.hasBetterOption) {
+                return (
+                  <div className="flex flex-col items-center">
+                    <div className="text-blue-700 mb-2">{analysis.message}</div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full btn-animated"
+                      onClick={() => {
+                        if (analysis.bestAlternative) {
+                          // Сначала закрываем карточку парковки
+                          onParkingSelect(null);
+                          
+                          // Небольшая задержка перед построением маршрута
+                          setTimeout(() => {
+                            const parkingObj = allParkings.find(p => p.id === analysis.bestAlternative.id) || parking;
+                            
+                            // Создаем событие для построения маршрута
+                            window.dispatchEvent(new CustomEvent('build-route', { 
+                              detail: { 
+                                parking: parkingObj,
+                                userLocation: userLocation
+                              } 
+                            }));
+                          }, 300);
+                        }
+                      }}
+                    >
+                      <MapPin className="mr-2 h-4 w-4" /> Построить маршрут
+                    </Button>
                   </div>
-                ))}
-              </div>
-            )}
+                );
+              } else {
+                return <div className="text-green-700">{analysis.message}</div>;
+              }
+            })()}
           </div>
         )}
-      </CardContent>
-    </Card>
+        
+        <Button 
+          onClick={() => {
+            // Сначала закрываем карточку парковки
+            onParkingSelect(null);
+            
+            // Небольшая задержка перед построением маршрута
+            setTimeout(() => {
+              // Если есть рекомендации, выбираем лучшую альтернативу (первую в списке)
+              if (recommendation && recommendation.alternatives && recommendation.alternatives.length > 0) {
+                const bestAlternative = recommendation.alternatives[0];
+                const parkingObj = allParkings.find(p => p.id === bestAlternative.id) || parking;
+                
+                // Создаем событие для построения маршрута
+                window.dispatchEvent(new CustomEvent('build-route', { 
+                  detail: { 
+                    parking: parkingObj,
+                    userLocation: userLocation
+                  } 
+                }));
+              } else {
+                // Если рекомендаций нет, просто используем текущую парковку
+                window.dispatchEvent(new CustomEvent('build-route', { 
+                  detail: { 
+                    parking: parking,
+                    userLocation: userLocation
+                  } 
+                }));
+              }
+            }, 300);
+          }} 
+          className="w-full btn-animated"
+        >
+          <MapPin className="mr-2 h-4 w-4" /> Показать маршрут
+        </Button>
+      </div>
+    </div>
   );
 } 
