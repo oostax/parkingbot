@@ -394,9 +394,8 @@ export async function checkConnection(): Promise<boolean> {
     console.log('Database connection successful');
     return true;
   } catch (error) {
-    // Используем обработчик для вывода подробной информации
-    const { handlePrismaError } = await import('./db-fallback');
-    handlePrismaError(error);
+    // Обрабатываем ошибку без fallback
+    console.error('Database connection failed:', error);
     return false;
   }
 }

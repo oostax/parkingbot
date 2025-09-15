@@ -1,30 +1,48 @@
 import { createClient } from 'redis';
 
-// Создаем Redis клиент
-const redis = createClient({
-  url: process.env.REDIS_URL || 'redis://localhost:6379',
-  socket: {
-    connectTimeout: 10000,
-    lazyConnect: true,
-  },
-});
+// Создаем Redis клиент только если мы не в процессе сборки
+let redis: any = null;
 
-// Обработка ошибок подключения
-redis.on('error', (err) => {
-  console.error('Redis Client Error:', err);
-});
+function getRedisClient() {
+  // Не создаем Redis клиент во время сборки Next.js
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    return null;
+  }
+  
+  if (!redis) {
+    try {
+      redis = createClient({
+        url: process.env.REDIS_URL || 'redis://localhost:6379',
+        socket: {
+          connectTimeout: 10000,
+          lazyConnect: true,
+        },
+      });
 
-redis.on('connect', () => {
-  console.log('Redis Client Connected');
-});
+      // Обработка ошибок подключения
+      redis.on('error', (err: any) => {
+        console.error('Redis Client Error:', err);
+      });
 
-redis.on('ready', () => {
-  console.log('Redis Client Ready');
-});
+      redis.on('connect', () => {
+        console.log('Redis Client Connected');
+      });
 
-// Подключаемся к Redis
-if (!redis.isOpen) {
-  redis.connect().catch(console.error);
+      redis.on('ready', () => {
+        console.log('Redis Client Ready');
+      });
+
+      // Подключаемся к Redis
+      if (!redis.isOpen) {
+        redis.connect().catch(console.error);
+      }
+    } catch (error) {
+      console.warn('Redis connection failed, continuing without cache:', error);
+      return null;
+    }
+  }
+  
+  return redis;
 }
 
 // Время жизни кэша в секундах
@@ -42,11 +60,14 @@ export class CacheService {
   // Получить данные из кэша
   static async get<T>(key: string): Promise<T | null> {
     try {
-      if (!redis.isOpen) {
-        await redis.connect();
+      const client = getRedisClient();
+      if (!client) return null;
+      
+      if (!client.isOpen) {
+        await client.connect();
       }
       
-      const cached = await redis.get(key);
+      const cached = await client.get(key);
       return cached ? JSON.parse(cached) : null;
     } catch (error) {
       console.error('Cache get error:', error);
@@ -57,11 +78,14 @@ export class CacheService {
   // Сохранить данные в кэш
   static async set(key: string, value: any, ttl: number = CACHE_TTL.PARKINGS): Promise<void> {
     try {
-      if (!redis.isOpen) {
-        await redis.connect();
+      const client = getRedisClient();
+      if (!client) return;
+      
+      if (!client.isOpen) {
+        await client.connect();
       }
       
-      await redis.setEx(key, ttl, JSON.stringify(value));
+      await client.setEx(key, ttl, JSON.stringify(value));
     } catch (error) {
       console.error('Cache set error:', error);
     }
@@ -70,11 +94,14 @@ export class CacheService {
   // Удалить данные из кэша
   static async del(key: string): Promise<void> {
     try {
-      if (!redis.isOpen) {
-        await redis.connect();
+      const client = getRedisClient();
+      if (!client) return;
+      
+      if (!client.isOpen) {
+        await client.connect();
       }
       
-      await redis.del(key);
+      await client.del(key);
     } catch (error) {
       console.error('Cache delete error:', error);
     }
@@ -83,13 +110,16 @@ export class CacheService {
   // Удалить все ключи по паттерну
   static async delPattern(pattern: string): Promise<void> {
     try {
-      if (!redis.isOpen) {
-        await redis.connect();
+      const client = getRedisClient();
+      if (!client) return;
+      
+      if (!client.isOpen) {
+        await client.connect();
       }
       
-      const keys = await redis.keys(pattern);
+      const keys = await client.keys(pattern);
       if (keys.length > 0) {
-        await redis.del(keys);
+        await client.del(keys);
       }
     } catch (error) {
       console.error('Cache delete pattern error:', error);
@@ -99,11 +129,14 @@ export class CacheService {
   // Проверить существование ключа
   static async exists(key: string): Promise<boolean> {
     try {
-      if (!redis.isOpen) {
-        await redis.connect();
+      const client = getRedisClient();
+      if (!client) return false;
+      
+      if (!client.isOpen) {
+        await client.connect();
       }
       
-      const result = await redis.exists(key);
+      const result = await client.exists(key);
       return result === 1;
     } catch (error) {
       console.error('Cache exists error:', error);
@@ -114,11 +147,14 @@ export class CacheService {
   // Получить TTL ключа
   static async ttl(key: string): Promise<number> {
     try {
-      if (!redis.isOpen) {
-        await redis.connect();
+      const client = getRedisClient();
+      if (!client) return -1;
+      
+      if (!client.isOpen) {
+        await client.connect();
       }
       
-      return await redis.ttl(key);
+      return await client.ttl(key);
     } catch (error) {
       console.error('Cache TTL error:', error);
       return -1;
@@ -150,4 +186,4 @@ export const CacheKeys = {
     `achievements:${userId}`,
 } as const;
 
-export default redis;
+export default getRedisClient;

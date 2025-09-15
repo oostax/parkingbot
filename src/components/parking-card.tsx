@@ -5,8 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Loader2, X } from "lucide-react";
 import { ParkingInfo } from "@/types/parking";
-import RegularParkingCard from "./RegularParkingCard";
-import InterceptingParkingCard from "./InterceptingParkingCard";
+// Импорты удалены - используем единый компонент
 
 interface ParkingCardProps {
   parking: ParkingInfo;
@@ -144,19 +143,64 @@ export default function ParkingCard({ parking, onClose, onToggleFavorite, allPar
     );
   }
 
-  // После инициализации показываем соответствующую карточку
-  return isIntercepting ? (
-    <InterceptingParkingCard 
-                    parking={parking}
-      onClose={onClose} 
-      onToggleFavorite={onToggleFavorite} 
-                    allParkings={allParkings}
-    />
-  ) : (
-    <RegularParkingCard 
-      parking={parking} 
-      onClose={onClose} 
-      onToggleFavorite={onToggleFavorite} 
-    />
+  // После инициализации показываем единую карточку
+  return (
+    <div className="relative">
+      <Card className="w-full max-w-md mx-auto overflow-hidden card-animated">
+        <CardHeader className="pb-2">
+          <div className="flex items-start justify-between">
+            <div>
+              <CardTitle className="text-lg font-bold flex items-center">
+                {parking.name}
+              </CardTitle>
+              <CardDescription className="text-sm">
+                {parking.street} {parking.house}
+              </CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-full btn-animated"
+              onClick={handleClose}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="pb-2">
+          <div className="space-y-3">
+            {/* Информация о парковке */}
+            <div className="text-sm text-gray-600">
+              <p><strong>Адрес:</strong> {parking.street} {parking.house}</p>
+              {parking.subway && <p><strong>Метро:</strong> {parking.subway}</p>}
+              {parking.schedule && <p><strong>Режим работы:</strong> {parking.schedule}</p>}
+              {parking.price && <p><strong>Стоимость:</strong> {parking.price}</p>}
+            </div>
+            
+            {/* Данные о свободных местах для перехватывающих парковок */}
+            {isIntercepting && (parking.freeSpaces !== undefined || parking.totalSpaces !== undefined) && (
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <h4 className="font-semibold text-blue-800 mb-2">Доступность мест</h4>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm">Свободно мест:</span>
+                  <span className="font-bold text-blue-600">
+                    {parking.freeSpaces !== undefined ? parking.freeSpaces : 'N/A'} / {parking.totalSpaces !== undefined ? parking.totalSpaces : 'N/A'}
+                  </span>
+                </div>
+              </div>
+            )}
+            
+            {/* Кнопка избранного */}
+            <Button
+              onClick={onToggleFavorite}
+              variant="outline"
+              className="w-full"
+            >
+              {parking.isFavorite ? 'Удалить из избранного' : 'Добавить в избранное'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
