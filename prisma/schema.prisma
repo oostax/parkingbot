@@ -14,8 +14,6 @@ model favorites {
   timestamp  String? @default("CURRENT_TIMESTAMP")
 
   @@unique([user_id, parking_id], map: "sqlite_autoindex_favorites_1")
-  @@index([user_id], map: "idx_favorites_user_id")
-  @@index([parking_id], map: "idx_favorites_parking_id")
 }
 
 model parking_stats {
@@ -24,10 +22,6 @@ model parking_stats {
   timestamp    String
   free_spaces  Int
   total_spaces Int
-
-  @@index([parking_id], map: "idx_parking_stats_parking_id")
-  @@index([timestamp], map: "idx_parking_stats_timestamp")
-  @@index([parking_id, timestamp], map: "idx_parking_stats_parking_timestamp")
 }
 
 model hourly_parking_data {
@@ -39,18 +33,16 @@ model hourly_parking_data {
   date_updated String
 
   @@unique([parking_id, hour], map: "sqlite_autoindex_hourly_parking_data_1")
-  @@index([parking_id], map: "idx_hourly_parking_data_parking_id")
-  @@index([hour], map: "idx_hourly_parking_data_hour")
-  @@index([date_updated], map: "idx_hourly_parking_data_date")
 }
 
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
 model User {
-  id           String             @id
+  id           String?            @id
   username     String?
   firstName    String?
   lastName     String?
   createdAt    String?            @default("CURRENT_TIMESTAMP")
-  updatedAt    DateTime           @default(now()) @updatedAt
+  updatedAt    String?            @default("CURRENT_TIMESTAMP") @updatedAt
   email        String?            @unique(map: "sqlite_autoindex_User_2")
   image        String?
   telegramId   String?
@@ -59,15 +51,14 @@ model User {
   districts    UserDistrict[]
   userProfile  UserProfile?
 
-  @@index([telegramId], map: "idx_user_telegram_id")
-  @@index([username], map: "idx_user_username")
-  @@index([createdAt], map: "idx_user_created_at")
   @@map("User")
+  @@ignore
 }
 
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
 model UserProfile {
-  id                   String  @id @default(cuid())
-  userId               String  @unique(map: "sqlite_autoindex_UserProfile_2")
+  id                   String? @id @default(cuid())
+  userId               String? @unique(map: "sqlite_autoindex_UserProfile_2")
   tokenBalance         Int?    @default(0)
   status               String? @default("Regular")
   carModel             String?
@@ -80,96 +71,69 @@ model UserProfile {
   totalTokensSpent     Int?    @default(0)
   referralsCount       Int?    @default(0)
   challengesCompleted  Int?    @default(0)
-  districtsVisited     String? @default("[]")
-  user                 User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user                 User?   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
 }
 
 model UserDistrict {
-  id       String @id @default(cuid())
+  id       String? @id @default(cuid())
   userId   String
   district String
-  user     User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user     User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction) @ignore
 
   @@unique([userId, district], map: "sqlite_autoindex_UserDistrict_2")
 }
 
 model Achievement {
-  id            String  @id @default(cuid())
+  id            String? @id @default(cuid())
   userId        String
   achievementId String
   earned        Int?    @default(0)
   earnedAt      String?
-  user          User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user          User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction) @ignore
 
   @@unique([userId, achievementId], map: "sqlite_autoindex_Achievement_2")
 }
 
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
 model TokenTransaction {
-  id          String  @id @default(cuid())
+  id          String? @id @default(cuid())
   userId      String
   amount      Int
   type        String
   description String
   createdAt   String? @default("CURRENT_TIMESTAMP")
   user        User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
 }
 
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
 model Challenge {
-  id          String                @id @default(cuid())
+  id          String?               @id @default(cuid())
   title       String
   description String
+  imageUrl    String?
   reward      Int
   startDate   String
   endDate     String
   isActive    Int?                  @default(1)
   type        String
   requirement Int
-  districtIds String?
-  imageUrl    String?
   parkIds     String?
+  districtIds String?
   completions ChallengeCompletion[]
+
+  @@ignore
 }
 
 model ChallengeCompletion {
-  id          String    @id @default(cuid())
+  id          String?   @id @default(cuid())
   challengeId String
   userId      String
   completedAt String?   @default("CURRENT_TIMESTAMP")
-  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: NoAction, onUpdate: NoAction) @ignore
 
   @@unique([challengeId, userId], map: "sqlite_autoindex_ChallengeCompletion_2")
-}
-
-model PromoCode {
-  id          String  @id @default(cuid())
-  code        String  @unique
-  reward      Int
-  type        String  @default("tokens") // tokens, discount, status_boost
-  description String?
-  isActive    Boolean @default(true)
-  expiresAt   String?
-  usageLimit  Int?    @default(0) // 0 - unlimited
-  usageCount  Int     @default(0)
-  createdAt   String  @default("CURRENT_TIMESTAMP")
-  createdBy   String?
-  redemptions PromoCodeRedemption[]
-}
-
-model PromoCodeRedemption {
-  id         String    @id @default(cuid())
-  promoCodeId String
-  userId     String
-  redeemedAt String    @default("CURRENT_TIMESTAMP")
-  promoCode  PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-}
-
-model AdminUser {
-  id          String   @id @default(cuid())
-  telegramId  String   @unique
-  username    String?
-  fullName    String?
-  role        String   @default("admin") // admin, super_admin
-  isActive    Boolean  @default(true)
-  addedById   String?  // ID администратора, который добавил этого пользователя
-  createdAt   String   @default("CURRENT_TIMESTAMP")
 }
