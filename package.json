@@ -12,11 +12,8 @@
     "clean-db-win": "if exist prisma\\dev.db del prisma\\dev.db && if exist prisma\\dev.db-journal del prisma\\dev.db-journal && node scripts/setup-database.js",
     "deploy": "bash deploy.sh",
     "postinstall": "node scripts/setup-database.js",
-    "extract-parking-data": "node scripts/extract-parking-data.js",
     "bot": "node scripts/telegram-bot.js",
-    "data-collector": "node scripts/data-collector.js",
-    "fix-env": "node scripts/update-env.js",
-    "fix-db": "node scripts/setup-database.js"
+    "data-collector": "node scripts/data-collector.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.1.1",
@@ -36,12 +33,13 @@
     "@radix-ui/react-toast": "^1.2.14",
     "@types/mapbox-gl": "^3.4.1",
     "@types/next-auth": "^3.13.0",
+    "@types/redis": "^4.0.10",
     "axios": "^1.9.0",
     "axios-retry": "^4.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^16.5.0",
-    "install": "^0.13.0",
+    "express-rate-limit": "^8.1.0",
     "leaflet-routing-machine": "^3.2.12",
     "lucide-react": "^0.511.0",
     "mapbox-gl": "^3.13.0",
@@ -51,11 +49,12 @@
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.58.1",
     "react-map-gl": "^7.1.9",
+    "redis": "^3.1.2",
     "sqlite3": "^5.1.7",
     "tailwind-merge": "^3.3.0",
     "tailwindcss-animate": "^1.0.7",
     "telegraf": "^4.16.3",
-    "zod": "^3.25.67"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

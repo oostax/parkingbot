@@ -14,6 +14,8 @@ model favorites {
   timestamp  String? @default("CURRENT_TIMESTAMP")
 
   @@unique([user_id, parking_id], map: "sqlite_autoindex_favorites_1")
+  @@index([user_id], map: "idx_favorites_user_id")
+  @@index([parking_id], map: "idx_favorites_parking_id")
 }
 
 model parking_stats {
@@ -22,6 +24,10 @@ model parking_stats {
   timestamp    String
   free_spaces  Int
   total_spaces Int
+
+  @@index([parking_id], map: "idx_parking_stats_parking_id")
+  @@index([timestamp], map: "idx_parking_stats_timestamp")
+  @@index([parking_id, timestamp], map: "idx_parking_stats_parking_timestamp")
 }
 
 model hourly_parking_data {
@@ -33,6 +39,9 @@ model hourly_parking_data {
   date_updated String
 
   @@unique([parking_id, hour], map: "sqlite_autoindex_hourly_parking_data_1")
+  @@index([parking_id], map: "idx_hourly_parking_data_parking_id")
+  @@index([hour], map: "idx_hourly_parking_data_hour")
+  @@index([date_updated], map: "idx_hourly_parking_data_date")
 }
 
 model User {
@@ -50,6 +59,9 @@ model User {
   districts    UserDistrict[]
   userProfile  UserProfile?
 
+  @@index([telegramId], map: "idx_user_telegram_id")
+  @@index([username], map: "idx_user_username")
+  @@index([createdAt], map: "idx_user_created_at")
   @@map("User")
 }
 

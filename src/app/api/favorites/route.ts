@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/options";
+import { CacheService, CacheKeys, CACHE_TTL } from "@/lib/redis";
+import { favoriteSchema, validateData } from "@/lib/validations";
+import { withRateLimit, rateLimiters } from "@/lib/rate-limit";
+import { logger } from "@/lib/logger";
 import fs from "fs";
 import path from "path";
 import { ParkingInfo } from "@/types/parking";
@@ -18,14 +22,30 @@ function getParkingData(): ParkingInfo[] {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Проверяем rate limit
+    const rateLimitResponse = withRateLimit(request, rateLimiters.general);
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
 
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Проверяем кэш
+    const cacheKey = CacheKeys.userFavorites(userId);
+    const cachedFavorites = await CacheService.get(cacheKey);
+    
+    if (cachedFavorites) {
+      logger.cacheHit(cacheKey);
+      return NextResponse.json(cachedFavorites);
+    }
+    logger.cacheMiss(cacheKey);
 
     const favorites = await prisma.favorites.findMany({
       where: { user_id: userId },
@@ -46,6 +66,10 @@ export async function GET() {
       };
     });
 
+    // Сохраняем в кэш
+    await CacheService.set(cacheKey, favoritesParkings, CACHE_TTL.FAVORITES);
+    logger.cacheSet(cacheKey, CACHE_TTL.FAVORITES);
+
     return NextResponse.json(favoritesParkings);
   } catch (error) {
     console.error("Error fetching favorites:", error);
@@ -55,6 +79,12 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    // Проверяем rate limit
+    const rateLimitResponse = withRateLimit(request, rateLimiters.general);
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
 
@@ -62,11 +92,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { parkingId } = await request.json();
-
-    if (!parkingId) {
-      return NextResponse.json({ error: "Parking ID is required" }, { status: 400 });
+    const body = await request.json();
+    
+    // Валидируем данные
+    const validation = validateData(favoriteSchema, body);
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: 'Invalid request data', details: validation.errors },
+        { status: 400 }
+      );
     }
+
+    const { parkingId } = validation.data;
 
     // Verify parking exists in JSON data
     const parkingList = getParkingData();
@@ -84,6 +121,11 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Инвалидируем кэш избранного
+    const cacheKey = CacheKeys.userFavorites(userId);
+    await CacheService.del(cacheKey);
+    logger.cacheInvalidate(cacheKey);
+
     // Для совместимости с существующим кодом
     return NextResponse.json({
       ...favorite,
@@ -98,6 +140,12 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    // Проверяем rate limit
+    const rateLimitResponse = withRateLimit(request, rateLimiters.general);
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
 
@@ -105,11 +153,18 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { parkingId } = await request.json();
-
-    if (!parkingId) {
-      return NextResponse.json({ error: "Parking ID is required" }, { status: 400 });
+    const body = await request.json();
+    
+    // Валидируем данные
+    const validation = validateData(favoriteSchema, body);
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: 'Invalid request data', details: validation.errors },
+        { status: 400 }
+      );
     }
+
+    const { parkingId } = validation.data;
 
     // Delete favorite - используем findFirst для поиска записи по составному ключу
     const favorite = await prisma.favorites.findFirst({
@@ -125,6 +180,11 @@ export async function DELETE(request: NextRequest) {
           id: favorite.id,
         },
       });
+
+      // Инвалидируем кэш избранного
+      const cacheKey = CacheKeys.userFavorites(userId);
+      await CacheService.del(cacheKey);
+      logger.cacheInvalidate(cacheKey);
     }
 
     return NextResponse.json({ success: true });
