@@ -37,22 +37,21 @@ model hourly_parking_data {
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
 model User {
-  id           String?            @id
+  id           String             @id
   username     String?
   firstName    String?
   lastName     String?
   createdAt    String?            @default("CURRENT_TIMESTAMP")
-  updatedAt    String?            @default("CURRENT_TIMESTAMP") @updatedAt
+  updatedAt    DateTime           @default(now()) @updatedAt
   email        String?            @unique(map: "sqlite_autoindex_User_2")
   image        String?
   telegramId   String?
   achievements Achievement[]
-  transactions TokenTransaction[]
+  transactions TokenTransaction[] @ignore
   districts    UserDistrict[]
-  userProfile  UserProfile?
+  userProfile  UserProfile?      @ignore
 
   @@map("User")
-  @@ignore
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
@@ -77,21 +76,21 @@ model UserProfile {
 }
 
 model UserDistrict {
-  id       String? @id @default(cuid())
+  id       String @id @default(cuid())
   userId   String
   district String
-  user     User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction) @ignore
+  user     User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([userId, district], map: "sqlite_autoindex_UserDistrict_2")
 }
 
 model Achievement {
-  id            String? @id @default(cuid())
+  id            String @id @default(cuid())
   userId        String
   achievementId String
-  earned        Int?    @default(0)
+  earned        Int?   @default(0)
   earnedAt      String?
-  user          User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction) @ignore
+  user          User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([userId, achievementId], map: "sqlite_autoindex_Achievement_2")
 }
@@ -129,7 +128,7 @@ model Challenge {
 }
 
 model ChallengeCompletion {
-  id          String?   @id @default(cuid())
+  id          String    @id @default(cuid())
   challengeId String
   userId      String
   completedAt String?   @default("CURRENT_TIMESTAMP")
